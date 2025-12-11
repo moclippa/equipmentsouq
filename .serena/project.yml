@@ -1,0 +1,34 @@
+# Serena Project Configuration for EquipmentSouq
+# Next.js 16 + TypeScript + Prisma classifieds platform
+
+# list of languages for which language servers are started
+# For JavaScript, use typescript (the TypeScript LS handles both)
+languages:
+- typescript
+
+# the encoding used by text files in the project
+encoding: "utf-8"
+
+# whether to use the project's gitignore file to ignore files
+ignore_all_files_in_gitignore: true
+
+# list of additional paths to ignore (same syntax as gitignore)
+ignored_paths:
+- .next
+- node_modules
+- prisma/migrations
+
+# whether the project is in read-only mode
+read_only: false
+
+# list of tool names to exclude
+excluded_tools: []
+
+# initial prompt for the project (given to LLM upon activation)
+initial_prompt: |
+  This is EquipmentSouq - a Haraj-style classifieds platform for heavy equipment rental and sale in Saudi Arabia and Bahrain.
+  Tech stack: Next.js 16 App Router, TypeScript 5, PostgreSQL + Prisma 7, NextAuth.js v5-beta, Tailwind CSS v4 + shadcn/ui.
+  Key directories: src/app (routes), src/components (UI), src/lib (utilities), prisma (database).
+
+project_name: "equipmentsouq"
+included_optional_tools: []

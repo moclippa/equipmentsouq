@@ -1,0 +1,511 @@
+// EquipmentSouq - Haraj-style Equipment Classifieds
+// Database Schema for Saudi Arabia & Bahrain
+// Simplified from marketplace → classifieds/lead-gen model
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum UserRole {
+  GUEST
+  RENTER
+  OWNER
+  ADMIN
+}
+
+enum BusinessType {
+  INDIVIDUAL
+  RENTAL_COMPANY
+  CONTRACTOR
+  INDUSTRIAL
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum ListingStatus {
+  DRAFT
+  ACTIVE
+  RENTED     // Temporarily unavailable
+  SOLD       // No longer available
+  PAUSED     // Owner paused
+  ARCHIVED
+}
+
+enum ListingType {
+  FOR_RENT
+  FOR_SALE
+  BOTH
+}
+
+enum LeadStatus {
+  NEW
+  VIEWED
+  CONTACTED
+  CONVERTED
+  CLOSED
+}
+
+enum Currency {
+  SAR
+  BHD
+}
+
+enum Country {
+  SA
+  BH
+}
+
+// ============================================================================
+// USER & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id                  String              @id @default(cuid())
+  email               String?             @unique
+  emailVerified       DateTime?
+  phone               String?             @unique
+  phoneVerified       DateTime?
+  hashedPassword      String?
+
+  // Profile
+  fullName            String
+  fullNameAr          String?
+  avatarUrl           String?
+  role                UserRole            @default(RENTER)
+  preferredLanguage   String              @default("en")
+  preferredCurrency   Currency            @default(SAR)
+  country             Country             @default(SA)
+
+  // Business Information
+  businessProfile     BusinessProfile?
+
+  // Status
+  isActive            Boolean             @default(true)
+  isSuspended         Boolean             @default(false)
+  suspendedReason     String?
+  suspendedAt         DateTime?
+
+  // Timestamps
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  lastLoginAt         DateTime?
+
+  // Relations
+  accounts            Account[]
+  sessions            Session[]
+
+  // As Owner
+  equipment           Equipment[]
+
+  // Common
+  notifications       Notification[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([role])
+  @@index([country])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model OTPCode {
+  id          String    @id @default(cuid())
+  phone       String
+  code        String
+  type        String
+  attempts    Int       @default(0)
+  verified    Boolean   @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+
+  @@index([phone, type])
+}
+
+// ============================================================================
+// BUSINESS PROFILE
+// ============================================================================
+
+model BusinessProfile {
+  id                    String              @id @default(cuid())
+  userId                String              @unique
+  user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Business Details
+  businessType          BusinessType
+  companyNameEn         String
+  companyNameAr         String?
+
+  // Registration Numbers
+  crNumber              String?
+  vatNumber             String?
+
+  // Documents
+  crDocumentUrl         String?
+  vatDocumentUrl        String?
+
+  // Verification
+  crVerificationStatus  VerificationStatus  @default(PENDING)
+  vatVerificationStatus VerificationStatus  @default(PENDING)
+  verifiedAt            DateTime?
+  verifiedBy            String?
+  rejectionReason       String?
+
+  // AI-Extracted Data
+  aiExtractedData       Json?
+
+  // Address
+  addressLine1          String?
+  addressLine2          String?
+  city                  String
+  region                String
+  postalCode            String?
+  country               Country
+
+  // Contact
+  businessPhone         String?
+  businessEmail         String?
+
+  // Bank Details (encrypted)
+  bankName              String?
+  bankAccountName       String?
+  bankAccountNumber     String?
+  bankIban              String?
+
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  @@index([businessType])
+  @@index([country])
+}
+
+// ============================================================================
+// EQUIPMENT & CATEGORIES
+// ============================================================================
+
+model Category {
+  id            String        @id @default(cuid())
+  slug          String        @unique
+  nameEn        String
+  nameAr        String
+  descriptionEn String?
+  descriptionAr String?
+  iconUrl       String?
+  imageUrl      String?
+  parentId      String?
+  parent        Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children      Category[]    @relation("CategoryHierarchy")
+
+  // Category-specific attributes template
+  attributeSchema Json?
+
+  // Ordering
+  sortOrder     Int           @default(0)
+  isActive      Boolean       @default(true)
+
+  equipment     Equipment[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([parentId])
+  @@index([slug])
+}
+
+model Equipment {
+  id                  String            @id @default(cuid())
+  ownerId             String
+  owner               User              @relation(fields: [ownerId], references: [id])
+
+  // Classification
+  categoryId          String
+  category            Category          @relation(fields: [categoryId], references: [id])
+
+  // Basic Info
+  titleEn             String
+  titleAr             String?
+  descriptionEn       String            @db.Text
+  descriptionAr       String?           @db.Text
+
+  // Equipment Details
+  make                String
+  model               String
+  year                Int?
+  condition           String            // EXCELLENT, GOOD, FAIR, POOR
+  hoursUsed           Int?
+
+  // AI-Generated Content
+  aiGeneratedTitle    Boolean           @default(false)
+  aiGeneratedDesc     Boolean           @default(false)
+  aiClassified        Boolean           @default(false)
+
+  // Category-specific attributes (optional)
+  specifications      Json?
+
+  // Location
+  locationCity        String
+  locationRegion      String
+  locationCountry     Country
+
+  // Listing Type & Pricing (simplified)
+  listingType         ListingType       @default(FOR_RENT)
+  rentalPrice         Decimal?          @db.Decimal(10, 2)  // e.g., "500 SAR/day"
+  rentalPriceUnit     String?           // "day", "week", "month"
+  salePrice           Decimal?          @db.Decimal(10, 2)  // e.g., "50000 SAR"
+  priceOnRequest      Boolean           @default(false)
+  currency            Currency          @default(SAR)
+
+  // Direct Contact (key for classifieds)
+  contactPhone        String
+  contactWhatsApp     String?
+
+  // Status
+  status              ListingStatus     @default(DRAFT)
+
+  // Metrics
+  viewCount           Int               @default(0)
+  leadCount           Int               @default(0)
+
+  // Timestamps
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  publishedAt         DateTime?
+
+  // Relations
+  images              EquipmentImage[]
+  leads               Lead[]
+  availabilityBlocks  AvailabilityBlock[]
+
+  @@index([ownerId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([listingType])
+  @@index([locationCity])
+  @@index([locationCountry])
+  @@index([rentalPrice])
+  @@index([salePrice])
+  @@index([createdAt])
+}
+
+model EquipmentImage {
+  id            String      @id @default(cuid())
+  equipmentId   String
+  equipment     Equipment   @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  url           String
+  thumbnailUrl  String?
+  altTextEn     String?
+  altTextAr     String?
+  sortOrder     Int         @default(0)
+  isPrimary     Boolean     @default(false)
+
+  // AI Analysis
+  aiAnalyzed    Boolean     @default(false)
+  aiTags        Json?
+
+  createdAt     DateTime    @default(now())
+
+  @@index([equipmentId])
+}
+
+// ============================================================================
+// LEADS (replaces Booking for classifieds)
+// ============================================================================
+
+model Lead {
+  id              String        @id @default(cuid())
+  equipmentId     String
+  equipment       Equipment     @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  // Requester info
+  name            String
+  phone           String
+  email           String?
+  message         String?       @db.Text
+
+  // What they want
+  interestedIn    String        // "rent", "buy", "both"
+
+  // Status tracking
+  status          LeadStatus    @default(NEW)
+  ownerViewedAt   DateTime?
+  ownerContactedAt DateTime?
+
+  createdAt       DateTime      @default(now())
+
+  @@index([equipmentId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// AVAILABILITY CALENDAR
+// ============================================================================
+
+model AvailabilityBlock {
+  id            String      @id @default(cuid())
+  equipmentId   String
+  equipment     Equipment   @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  // Date range
+  startDate     DateTime    @db.Date
+  endDate       DateTime    @db.Date
+
+  // Block type
+  isAvailable   Boolean     @default(false)  // true = available, false = unavailable/blocked
+  reason        String?     // Optional: "Maintenance", "Rented externally", "Holiday", etc.
+
+  // Metadata
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([equipmentId])
+  @@index([startDate, endDate])
+  @@index([equipmentId, startDate, endDate])
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+model Notification {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Content
+  type          String
+  titleEn       String
+  titleAr       String?
+  bodyEn        String
+  bodyAr        String?
+
+  // Action
+  actionUrl     String?
+  actionData    Json?
+
+  // Status
+  isRead        Boolean     @default(false)
+  readAt        DateTime?
+
+  // Delivery
+  emailSent     Boolean     @default(false)
+  smsSent       Boolean     @default(false)
+  pushSent      Boolean     @default(false)
+
+  createdAt     DateTime    @default(now())
+
+  @@index([userId])
+  @@index([type])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// ADMIN & CONFIGURATION
+// ============================================================================
+
+model AdminConfig {
+  id            String      @id @default(cuid())
+  key           String      @unique
+  value         Json
+  description   String?
+  updatedAt     DateTime    @updatedAt
+  updatedBy     String?
+}
+
+model AdminAuditLog {
+  id            String      @id @default(cuid())
+  adminId       String
+  action        String
+  targetType    String
+  targetId      String
+  details       Json?
+  ipAddress     String?
+  createdAt     DateTime    @default(now())
+
+  @@index([adminId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// AI & ANALYTICS
+// ============================================================================
+
+model AIUsageLog {
+  id            String      @id @default(cuid())
+  provider      String
+  service       String
+  inputTokens   Int
+  outputTokens  Int
+  cost          Decimal     @db.Decimal(10, 6)
+  latencyMs     Int
+  success       Boolean
+  errorMessage  String?
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+
+  @@index([provider])
+  @@index([service])
+  @@index([createdAt])
+}
+
+model AnalyticsEvent {
+  id            String      @id @default(cuid())
+  eventType     String
+  userId        String?
+  sessionId     String?
+  data          Json
+  country       Country?
+  createdAt     DateTime    @default(now())
+
+  @@index([eventType])
+  @@index([userId])
+  @@index([createdAt])
+}
