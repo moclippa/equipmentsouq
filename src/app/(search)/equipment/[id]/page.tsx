@@ -664,8 +664,6 @@ export default function EquipmentDetailPage({
                             equipmentId={equipment.id}
                             equipmentTitle={equipment.titleEn}
                             listingType={equipment.listingType}
-                            ownerPhone={equipment.contactPhone}
-                            ownerWhatsApp={equipment.contactWhatsApp || undefined}
                           />
                         </TabsContent>
                         <TabsContent value="booking" className="mt-4">
@@ -680,8 +678,6 @@ export default function EquipmentDetailPage({
                         equipmentId={equipment.id}
                         equipmentTitle={equipment.titleEn}
                         listingType={equipment.listingType}
-                        ownerPhone={equipment.contactPhone}
-                        ownerWhatsApp={equipment.contactWhatsApp || undefined}
                       />
                     )}
                   </>
