@@ -17,7 +17,7 @@ import {
 import { DateRangePicker } from "@/components/features/search/date-range-picker";
 import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
-import { CalendarClock, Loader2, CheckCircle2, Clock } from "lucide-react";
+import { CalendarClock, Loader2, CheckCircle2, Clock, LogIn, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface BookingRequestFormProps {
@@ -33,8 +33,9 @@ export function BookingRequestForm({
   className,
   onSuccess,
 }: BookingRequestFormProps) {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
+  const isVerified = session?.user?.phoneVerified;
 
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [name, setName] = useState(session?.user?.fullName || "");
@@ -95,6 +96,74 @@ export function BookingRequestForm({
       setIsSubmitting(false);
     }
   };
+
+  // Not logged in - prompt to login
+  if (status === "unauthenticated") {
+    return (
+      <Card className={className}>
+        <CardHeader>
+          <CardTitle>Request to Book</CardTitle>
+          <CardDescription>
+            Login to request specific dates
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-4">
+            <div className="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-4">
+              <LogIn className="w-6 h-6 text-muted-foreground" />
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Please login with your phone number to request booking dates
+            </p>
+            <Button onClick={() => router.push("/login")} className="w-full">
+              Login to Request Dates
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Logged in but phone not verified
+  if (status === "authenticated" && !isVerified) {
+    return (
+      <Card className={cn("border-amber-200 bg-amber-50", className)}>
+        <CardHeader>
+          <CardTitle>Phone Verification Required</CardTitle>
+          <CardDescription>
+            Verify your phone to request booking dates
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-4">
+            <div className="mx-auto w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mb-4">
+              <Smartphone className="w-6 h-6 text-amber-600" />
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              To protect our community from spam, please verify your phone number before requesting bookings.
+            </p>
+            <Button
+              onClick={() => router.push("/settings?verify=phone")}
+              className="w-full"
+            >
+              Verify Phone Number
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Loading session
+  if (status === "loading") {
+    return (
+      <Card className={className}>
+        <CardContent className="py-8 text-center">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (success) {
     return (

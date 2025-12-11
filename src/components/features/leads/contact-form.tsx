@@ -45,6 +45,7 @@ export function ContactForm({
 }: ContactFormProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const isVerified = session?.user?.phoneVerified;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [ownerContact, setOwnerContact] = useState<{
@@ -136,6 +137,36 @@ export function ContactForm({
             </Button>
           </div>
 
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Logged in but phone not verified
+  if (status === "authenticated" && !isVerified) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader>
+          <CardTitle>Phone Verification Required</CardTitle>
+          <CardDescription>
+            Verify your phone to contact equipment owners
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-4">
+            <div className="mx-auto w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mb-4">
+              <Smartphone className="w-6 h-6 text-amber-600" />
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              To protect our community from spam, please verify your phone number before contacting sellers.
+            </p>
+            <Button
+              onClick={() => router.push("/settings?verify=phone")}
+              className="w-full"
+            >
+              Verify Phone Number
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );
