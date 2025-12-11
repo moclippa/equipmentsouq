@@ -584,9 +584,46 @@ export default function EquipmentDetailPage({
                 {/* Show contact options only for non-owners */}
                 {!isOwner && (
                   <>
-                    {/* Quick Contact Buttons - Only for logged-in verified users */}
-                    {session?.user?.phoneVerified ? (
+                    {/* Not logged in or not verified - show single unified prompt */}
+                    {!session?.user?.phoneVerified ? (
+                      <div className="py-6">
+                        <div className="text-center space-y-4">
+                          <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                            <Phone className="w-8 h-8 text-muted-foreground" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-lg">
+                              {!session ? "Sign in to contact seller" : "Verify your phone"}
+                            </h3>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {!session
+                                ? "Create an account to call, WhatsApp, or send inquiries to the owner"
+                                : "Verify your phone number to unlock all contact options"
+                              }
+                            </p>
+                          </div>
+                          <Button
+                            className="w-full"
+                            onClick={() => router.push(!session ? "/login" : "/settings?verify=phone")}
+                          >
+                            {!session ? "Sign In to Contact" : "Verify Phone Number"}
+                          </Button>
+                          {!session && (
+                            <p className="text-xs text-muted-foreground">
+                              Don&apos;t have an account?{" "}
+                              <button
+                                onClick={() => router.push("/register")}
+                                className="text-primary hover:underline"
+                              >
+                                Register here
+                              </button>
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
                       <>
+                        {/* Verified user - show full contact options */}
                         <div className="flex gap-2">
                           <a
                             href={getWhatsAppLink(equipment.contactWhatsApp || equipment.contactPhone, equipment.titleEn)}
@@ -617,68 +654,44 @@ export default function EquipmentDetailPage({
                             <span>Call</span>
                           </a>
                         </div>
-                        <Separator />
-                      </>
-                    ) : (
-                      <>
-                        <div className="p-4 rounded-lg bg-muted/50 border border-dashed">
-                          <div className="text-center space-y-2">
-                            <Phone className="w-8 h-8 mx-auto text-muted-foreground" />
-                            <p className="text-sm font-medium">
-                              {!session ? "Sign in to contact seller" : "Verify your phone to contact seller"}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {!session
-                                ? "Create an account to call or WhatsApp the owner directly"
-                                : "Verify your phone number to unlock direct contact options"
-                              }
-                            </p>
-                            <Button
-                              size="sm"
-                              className="mt-2"
-                              onClick={() => router.push(!session ? "/login" : "/settings?verify=phone")}
-                            >
-                              {!session ? "Sign In" : "Verify Phone"}
-                            </Button>
-                          </div>
-                        </div>
-                        <Separator />
-                      </>
-                    )}
 
-                    {/* Contact Options - Tabs for Rental, Simple Form for Sale-only */}
-                    {(equipment.listingType === "FOR_RENT" || equipment.listingType === "BOTH") && equipment.status === "ACTIVE" ? (
-                      <Tabs defaultValue="inquiry" className="w-full">
-                        <TabsList className="grid w-full grid-cols-2">
-                          <TabsTrigger value="inquiry" className="text-xs sm:text-sm">
-                            <MessageSquare className="w-3.5 h-3.5 me-1.5" />
-                            Send Inquiry
-                          </TabsTrigger>
-                          <TabsTrigger value="booking" className="text-xs sm:text-sm">
-                            <CalendarCheck className="w-3.5 h-3.5 me-1.5" />
-                            Request Dates
-                          </TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="inquiry" className="mt-4">
+                        <Separator />
+
+                        {/* Contact Options - Tabs for Rental, Simple Form for Sale-only */}
+                        {(equipment.listingType === "FOR_RENT" || equipment.listingType === "BOTH") && equipment.status === "ACTIVE" ? (
+                          <Tabs defaultValue="inquiry" className="w-full">
+                            <TabsList className="grid w-full grid-cols-2">
+                              <TabsTrigger value="inquiry" className="text-xs sm:text-sm">
+                                <MessageSquare className="w-3.5 h-3.5 me-1.5" />
+                                Send Inquiry
+                              </TabsTrigger>
+                              <TabsTrigger value="booking" className="text-xs sm:text-sm">
+                                <CalendarCheck className="w-3.5 h-3.5 me-1.5" />
+                                Request Dates
+                              </TabsTrigger>
+                            </TabsList>
+                            <TabsContent value="inquiry" className="mt-4">
+                              <ContactForm
+                                equipmentId={equipment.id}
+                                equipmentTitle={equipment.titleEn}
+                                listingType={equipment.listingType}
+                              />
+                            </TabsContent>
+                            <TabsContent value="booking" className="mt-4">
+                              <BookingRequestForm
+                                equipmentId={equipment.id}
+                                equipmentTitle={equipment.titleEn}
+                              />
+                            </TabsContent>
+                          </Tabs>
+                        ) : (
                           <ContactForm
                             equipmentId={equipment.id}
                             equipmentTitle={equipment.titleEn}
                             listingType={equipment.listingType}
                           />
-                        </TabsContent>
-                        <TabsContent value="booking" className="mt-4">
-                          <BookingRequestForm
-                            equipmentId={equipment.id}
-                            equipmentTitle={equipment.titleEn}
-                          />
-                        </TabsContent>
-                      </Tabs>
-                    ) : (
-                      <ContactForm
-                        equipmentId={equipment.id}
-                        equipmentTitle={equipment.titleEn}
-                        listingType={equipment.listingType}
-                      />
+                        )}
+                      </>
                     )}
                   </>
                 )}
