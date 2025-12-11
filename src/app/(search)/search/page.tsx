@@ -35,6 +35,8 @@ import {
   X,
   Home,
   Heart,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 
 interface Category {
@@ -133,6 +135,21 @@ export default function SearchPage() {
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+
+  // Load view preference from localStorage
+  useEffect(() => {
+    const savedView = localStorage.getItem("equipmentViewMode");
+    if (savedView === "grid" || savedView === "list") {
+      setViewMode(savedView);
+    }
+  }, []);
+
+  // Save view preference to localStorage
+  const handleViewModeChange = (mode: "grid" | "list") => {
+    setViewMode(mode);
+    localStorage.setItem("equipmentViewMode", mode);
+  };
 
   // Fetch categories
   useEffect(() => {
@@ -431,7 +448,7 @@ export default function SearchPage() {
             </Sheet>
           </div>
 
-          {/* Sort & Results Count */}
+          {/* Sort, View Toggle & Results Count */}
           <div className="flex items-center justify-between mt-4">
             <p className="text-sm text-muted-foreground">
               {isLoading ? (
@@ -443,26 +460,54 @@ export default function SearchPage() {
                 </>
               )}
             </p>
-            <Select
-              value={`${sortBy}-${sortOrder}`}
-              onValueChange={(v) => {
-                const [sb, so] = v.split("-");
-                setSortBy(sb);
-                setSortOrder(so);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="createdAt-desc">Newest first</SelectItem>
-                <SelectItem value="createdAt-asc">Oldest first</SelectItem>
-                <SelectItem value="dailyRate-asc">Price: Low to High</SelectItem>
-                <SelectItem value="dailyRate-desc">Price: High to Low</SelectItem>
-                <SelectItem value="averageRating-desc">Highest rated</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-3">
+              {/* View Toggle */}
+              <div className="flex items-center rounded-lg border bg-muted p-1">
+                <button
+                  onClick={() => handleViewModeChange("grid")}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    viewMode === "grid"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="Grid view"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleViewModeChange("list")}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    viewMode === "list"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="List view"
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
+              {/* Sort */}
+              <Select
+                value={`${sortBy}-${sortOrder}`}
+                onValueChange={(v) => {
+                  const [sb, so] = v.split("-");
+                  setSortBy(sb);
+                  setSortOrder(so);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="createdAt-desc">Newest first</SelectItem>
+                  <SelectItem value="createdAt-asc">Oldest first</SelectItem>
+                  <SelectItem value="dailyRate-asc">Price: Low to High</SelectItem>
+                  <SelectItem value="dailyRate-desc">Price: High to Low</SelectItem>
+                  <SelectItem value="averageRating-desc">Highest rated</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       </div>
@@ -501,83 +546,179 @@ export default function SearchPage() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {equipment.map((item) => (
-                    <Link key={item.id} href={`/equipment/${item.id}`}>
-                      <Card className="overflow-hidden hover:shadow-lg transition-shadow group">
-                        {/* Image */}
-                        <div className="relative aspect-[4/3] bg-muted">
-                          {item.images[0] ? (
-                            <Image
-                              src={item.images[0].url}
-                              alt={item.titleEn}
-                              fill
-                              className="object-cover group-hover:scale-105 transition-transform"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                              No image
+                {/* Grid View */}
+                {viewMode === "grid" && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {equipment.map((item) => (
+                      <Link key={item.id} href={`/equipment/${item.id}`}>
+                        <Card className="overflow-hidden hover:shadow-lg transition-shadow group">
+                          {/* Image */}
+                          <div className="relative aspect-[4/3] bg-muted">
+                            {item.images[0] ? (
+                              <Image
+                                src={item.images[0].url}
+                                alt={item.titleEn}
+                                fill
+                                className="object-cover group-hover:scale-105 transition-transform"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                                No image
+                              </div>
+                            )}
+
+                            {/* Badges */}
+                            <div className="absolute top-2 start-2 flex flex-col gap-1">
+                              {item.listingType === "FOR_SALE" && (
+                                <Badge className="bg-green-600 text-white">
+                                  For Sale
+                                </Badge>
+                              )}
+                              {item.listingType === "BOTH" && (
+                                <Badge variant="secondary">
+                                  Rent or Buy
+                                </Badge>
+                              )}
                             </div>
-                          )}
 
-                          {/* Badges */}
-                          <div className="absolute top-2 start-2 flex flex-col gap-1">
-                            {item.listingType === "FOR_SALE" && (
-                              <Badge className="bg-green-600 text-white">
-                                For Sale
-                              </Badge>
-                            )}
-                            {item.listingType === "BOTH" && (
-                              <Badge variant="secondary">
-                                Rent or Buy
-                              </Badge>
-                            )}
+                            {/* Price */}
+                            <div className="absolute bottom-2 end-2">
+                              {item.priceOnRequest ? (
+                                <Badge variant="secondary" className="text-sm font-medium px-2 py-1">
+                                  Contact for price
+                                </Badge>
+                              ) : item.rentalPrice ? (
+                                <Badge variant="secondary" className="text-base font-bold px-2 py-1">
+                                  {formatPrice(item.rentalPrice, item.currency)}/{item.rentalPriceUnit || "day"}
+                                </Badge>
+                              ) : item.salePrice ? (
+                                <Badge variant="secondary" className="text-base font-bold px-2 py-1">
+                                  {formatPrice(item.salePrice, item.currency)}
+                                </Badge>
+                              ) : null}
+                            </div>
                           </div>
 
-                          {/* Price */}
-                          <div className="absolute bottom-2 end-2">
-                            {item.priceOnRequest ? (
-                              <Badge variant="secondary" className="text-sm font-medium px-2 py-1">
-                                Contact for price
-                              </Badge>
-                            ) : item.rentalPrice ? (
-                              <Badge variant="secondary" className="text-base font-bold px-2 py-1">
-                                {formatPrice(item.rentalPrice, item.currency)}/{item.rentalPriceUnit || "day"}
-                              </Badge>
-                            ) : item.salePrice ? (
-                              <Badge variant="secondary" className="text-base font-bold px-2 py-1">
-                                {formatPrice(item.salePrice, item.currency)}
-                              </Badge>
-                            ) : null}
-                          </div>
-                        </div>
+                          {/* Content */}
+                          <CardContent className="p-4">
+                            <div className="text-xs text-muted-foreground mb-1">
+                              {item.category.nameEn}
+                            </div>
+                            <h3 className="font-semibold line-clamp-1 group-hover:text-primary transition-colors">
+                              {item.titleEn}
+                            </h3>
+                            <p className="text-sm text-muted-foreground line-clamp-1">
+                              {item.make} {item.model} {item.year && `(${item.year})`}
+                            </p>
 
-                        {/* Content */}
-                        <CardContent className="p-4">
-                          <div className="text-xs text-muted-foreground mb-1">
-                            {item.category.nameEn}
-                          </div>
-                          <h3 className="font-semibold line-clamp-1 group-hover:text-primary transition-colors">
-                            {item.titleEn}
-                          </h3>
-                          <p className="text-sm text-muted-foreground line-clamp-1">
-                            {item.make} {item.model} {item.year && `(${item.year})`}
-                          </p>
+                            <div className="flex items-center justify-between mt-3 text-sm text-muted-foreground">
+                              <span className="flex items-center">
+                                <MapPin className="w-3 h-3 me-1" />
+                                {item.locationCity}
+                              </span>
+                              <span className="text-xs">
+                                {item.condition}
+                              </span>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </Link>
+                    ))}
+                  </div>
+                )}
 
-                          <div className="flex items-center justify-between mt-3 text-sm text-muted-foreground">
-                            <span className="flex items-center">
-                              <MapPin className="w-3 h-3 me-1" />
-                              {item.locationCity}
-                            </span>
-                            <span className="text-xs">
-                              {item.condition}
-                            </span>
+                {/* List View */}
+                {viewMode === "list" && (
+                  <div className="flex flex-col gap-3">
+                    {equipment.map((item) => (
+                      <Link key={item.id} href={`/equipment/${item.id}`}>
+                        <Card className="overflow-hidden hover:shadow-lg transition-shadow group">
+                          <div className="flex">
+                            {/* Image */}
+                            <div className="relative w-48 sm:w-56 shrink-0 bg-muted">
+                              {item.images[0] ? (
+                                <Image
+                                  src={item.images[0].url}
+                                  alt={item.titleEn}
+                                  fill
+                                  className="object-cover group-hover:scale-105 transition-transform"
+                                />
+                              ) : (
+                                <div className="w-full h-full min-h-[120px] flex items-center justify-center text-muted-foreground">
+                                  No image
+                                </div>
+                              )}
+                              {/* Listing Type Badge */}
+                              <div className="absolute top-2 start-2">
+                                {item.listingType === "FOR_SALE" && (
+                                  <Badge className="bg-green-600 text-white">
+                                    For Sale
+                                  </Badge>
+                                )}
+                                {item.listingType === "BOTH" && (
+                                  <Badge variant="secondary">
+                                    Rent or Buy
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Content */}
+                            <CardContent className="flex-1 p-4 flex flex-col justify-between">
+                              <div>
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-muted-foreground mb-1">
+                                      {item.category.nameEn}
+                                    </div>
+                                    <h3 className="font-semibold text-lg group-hover:text-primary transition-colors line-clamp-1">
+                                      {item.titleEn}
+                                    </h3>
+                                    <p className="text-sm text-muted-foreground">
+                                      {item.make} {item.model} {item.year && `(${item.year})`}
+                                    </p>
+                                  </div>
+                                  {/* Price */}
+                                  <div className="shrink-0 text-end">
+                                    {item.priceOnRequest ? (
+                                      <span className="text-sm font-medium text-muted-foreground">
+                                        Contact for price
+                                      </span>
+                                    ) : item.rentalPrice ? (
+                                      <div>
+                                        <span className="text-lg font-bold text-primary">
+                                          {formatPrice(item.rentalPrice, item.currency)}
+                                        </span>
+                                        <span className="text-sm text-muted-foreground">/{item.rentalPriceUnit || "day"}</span>
+                                      </div>
+                                    ) : item.salePrice ? (
+                                      <span className="text-lg font-bold text-primary">
+                                        {formatPrice(item.salePrice, item.currency)}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Footer info */}
+                              <div className="flex items-center justify-between mt-3 pt-3 border-t text-sm text-muted-foreground">
+                                <span className="flex items-center">
+                                  <MapPin className="w-3 h-3 me-1" />
+                                  {item.locationCity}, {item.locationCountry}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                  <Badge variant="outline" className="text-xs">
+                                    {item.condition}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </CardContent>
                           </div>
-                        </CardContent>
-                      </Card>
-                    </Link>
-                  ))}
-                </div>
+                        </Card>
+                      </Link>
+                    ))}
+                  </div>
+                )}
 
                 {/* Pagination */}
                 {pagination.totalPages > 1 && (
