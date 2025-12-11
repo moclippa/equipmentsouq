@@ -110,6 +110,12 @@ const CONDITIONS = [
   { value: "POOR", label: "Poor" },
 ];
 
+// Currency conversion rates (approximate)
+const EXCHANGE_RATES: Record<string, Record<string, number>> = {
+  SAR: { SAR: 1, BHD: 0.0999 },
+  BHD: { BHD: 1, SAR: 10.01 },
+};
+
 export default function SearchPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -120,7 +126,7 @@ export default function SearchPage() {
   const [city, setCity] = useState(searchParams.get("city") || "");
   const [country, setCountry] = useState(searchParams.get("country") || "");
   const [condition, setCondition] = useState(searchParams.get("condition") || "");
-  const [currency, setCurrency] = useState(searchParams.get("currency") || "");
+  const [displayCurrency, setDisplayCurrency] = useState<"SAR" | "BHD">("SAR");
   const [minPrice, setMinPrice] = useState(searchParams.get("minPrice") || "");
   const [maxPrice, setMaxPrice] = useState(searchParams.get("maxPrice") || "");
   const [deliveryOnly, setDeliveryOnly] = useState(searchParams.get("delivery") === "true");
@@ -137,11 +143,15 @@ export default function SearchPage() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
-  // Load view preference from localStorage
+  // Load preferences from localStorage
   useEffect(() => {
     const savedView = localStorage.getItem("equipmentViewMode");
     if (savedView === "grid" || savedView === "list") {
       setViewMode(savedView);
+    }
+    const savedCurrency = localStorage.getItem("displayCurrency");
+    if (savedCurrency === "SAR" || savedCurrency === "BHD") {
+      setDisplayCurrency(savedCurrency);
     }
   }, []);
 
@@ -149,6 +159,12 @@ export default function SearchPage() {
   const handleViewModeChange = (mode: "grid" | "list") => {
     setViewMode(mode);
     localStorage.setItem("equipmentViewMode", mode);
+  };
+
+  // Save currency preference to localStorage
+  const handleDisplayCurrencyChange = (currency: "SAR" | "BHD") => {
+    setDisplayCurrency(currency);
+    localStorage.setItem("displayCurrency", currency);
   };
 
   // Fetch categories
@@ -165,14 +181,13 @@ export default function SearchPage() {
     fetchCategories();
   }, []);
 
-  // Build search params
+  // Build search params (displayCurrency is NOT a filter, just display preference)
   const buildSearchParams = useCallback(() => {
     const params = new URLSearchParams();
     if (category) params.set("category", category);
     if (city) params.set("city", city);
     if (country) params.set("country", country);
     if (condition) params.set("condition", condition);
-    if (currency) params.set("currency", currency);
     if (minPrice) params.set("minPrice", minPrice);
     if (maxPrice) params.set("maxPrice", maxPrice);
     if (deliveryOnly) params.set("delivery", "true");
@@ -181,7 +196,7 @@ export default function SearchPage() {
     if (sortOrder !== "desc") params.set("sortOrder", sortOrder);
     if (page > 1) params.set("page", page.toString());
     return params;
-  }, [category, city, country, condition, currency, minPrice, maxPrice, deliveryOnly, instantBookOnly, sortBy, sortOrder, page]);
+  }, [category, city, country, condition, minPrice, maxPrice, deliveryOnly, instantBookOnly, sortBy, sortOrder, page]);
 
   // Fetch equipment
   useEffect(() => {
@@ -216,7 +231,6 @@ export default function SearchPage() {
     setCity("");
     setCountry("");
     setCondition("");
-    setCurrency("");
     setMinPrice("");
     setMaxPrice("");
     setDeliveryOnly(false);
@@ -224,16 +238,26 @@ export default function SearchPage() {
     setPage(1);
   };
 
-  const hasActiveFilters = category || city || country || condition || currency || minPrice || maxPrice || deliveryOnly || instantBookOnly;
+  const hasActiveFilters = category || city || country || condition || minPrice || maxPrice || deliveryOnly || instantBookOnly;
 
   const cities = country === "BH" ? BAHRAIN_CITIES : SAUDI_CITIES;
 
-  const formatPrice = (amount: string, currency: string) => {
+  // Convert and format price to display currency
+  const formatPrice = (amount: string, originalCurrency: string) => {
+    let convertedAmount = parseFloat(amount);
+
+    // Convert if needed
+    if (originalCurrency !== displayCurrency) {
+      const rate = EXCHANGE_RATES[originalCurrency]?.[displayCurrency] || 1;
+      convertedAmount = convertedAmount * rate;
+    }
+
     return new Intl.NumberFormat("en-SA", {
       style: "currency",
-      currency,
+      currency: displayCurrency,
       minimumFractionDigits: 0,
-    }).format(parseFloat(amount));
+      maximumFractionDigits: displayCurrency === "BHD" ? 0 : 0,
+    }).format(convertedAmount);
   };
 
   const FilterContent = () => (
@@ -310,7 +334,7 @@ export default function SearchPage() {
 
       {/* Price Range */}
       <div>
-        <label className="text-sm font-medium mb-2 block">Price Range ({currency || "SAR"})</label>
+        <label className="text-sm font-medium mb-2 block">Price Range ({displayCurrency})</label>
         <div className="flex gap-2">
           <Input
             type="number"
@@ -380,12 +404,12 @@ export default function SearchPage() {
             <span className="font-semibold text-lg">Equipment Souq</span>
           </Link>
           <div className="flex items-center gap-3">
-            {/* Currency Toggle */}
+            {/* Currency Display Toggle (converts prices, doesn't filter) */}
             <div className="flex items-center rounded-lg border bg-muted p-1">
               <button
-                onClick={() => { setCurrency("SAR"); setPage(1); }}
+                onClick={() => handleDisplayCurrencyChange("SAR")}
                 className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-                  currency === "SAR" || !currency
+                  displayCurrency === "SAR"
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -393,9 +417,9 @@ export default function SearchPage() {
                 SAR
               </button>
               <button
-                onClick={() => { setCurrency("BHD"); setPage(1); }}
+                onClick={() => handleDisplayCurrencyChange("BHD")}
                 className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-                  currency === "BHD"
+                  displayCurrency === "BHD"
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
