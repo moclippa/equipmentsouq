@@ -4,7 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ArrowLeft, Smartphone, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { CategoryStep } from "@/components/features/equipment/category-step";
@@ -106,6 +115,7 @@ export default function NewEquipmentPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<EquipmentFormData>(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPhoneVerificationModal, setShowPhoneVerificationModal] = useState(false);
 
   const progress = (currentStep / STEPS.length) * 100;
 
@@ -170,6 +180,11 @@ export default function NewEquipmentPage() {
 
       if (!response.ok) {
         const error = await response.json();
+        // Check for phone verification error
+        if (error.code === "PHONE_NOT_VERIFIED") {
+          setShowPhoneVerificationModal(true);
+          return;
+        }
         throw new Error(error.error || "Failed to create listing");
       }
 
@@ -244,48 +259,98 @@ export default function NewEquipmentPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <Link href="/dashboard" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4">
-          <ArrowLeft className="w-4 h-4 me-1" />
-          Back to Dashboard
-        </Link>
-        <h1 className="text-2xl font-bold">List Your Equipment</h1>
-        <p className="text-muted-foreground">
-          Post your equipment for rent or sale - it only takes a few minutes
-        </p>
-      </div>
-
-      {/* Progress */}
-      <div className="mb-8">
-        <div className="flex justify-between mb-2">
-          {STEPS.map((step) => (
-            <div
-              key={step.id}
-              className={`text-xs ${
-                step.id === currentStep
-                  ? "text-primary font-medium"
-                  : step.id < currentStep
-                  ? "text-muted-foreground"
-                  : "text-muted-foreground/50"
-              }`}
-            >
-              <span className="hidden sm:inline">{step.name}</span>
-              <span className="sm:hidden">{step.id}</span>
-            </div>
-          ))}
+    <>
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="mb-6">
+          <Link href="/dashboard" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4">
+            <ArrowLeft className="w-4 h-4 me-1" />
+            Back to Dashboard
+          </Link>
+          <h1 className="text-2xl font-bold">List Your Equipment</h1>
+          <p className="text-muted-foreground">
+            Post your equipment for rent or sale - it only takes a few minutes
+          </p>
         </div>
-        <Progress value={progress} className="h-2" />
-        <p className="text-sm text-muted-foreground mt-2">
-          Step {currentStep} of {STEPS.length}: {STEPS[currentStep - 1].description}
-        </p>
+
+        {/* Progress */}
+        <div className="mb-8">
+          <div className="flex justify-between mb-2">
+            {STEPS.map((step) => (
+              <div
+                key={step.id}
+                className={`text-xs ${
+                  step.id === currentStep
+                    ? "text-primary font-medium"
+                    : step.id < currentStep
+                    ? "text-muted-foreground"
+                    : "text-muted-foreground/50"
+                }`}
+              >
+                <span className="hidden sm:inline">{step.name}</span>
+                <span className="sm:hidden">{step.id}</span>
+              </div>
+            ))}
+          </div>
+          <Progress value={progress} className="h-2" />
+          <p className="text-sm text-muted-foreground mt-2">
+            Step {currentStep} of {STEPS.length}: {STEPS[currentStep - 1].description}
+          </p>
+        </div>
+
+        {/* Step Content */}
+        <Card>
+          <CardContent className="p-6">{renderStep()}</CardContent>
+        </Card>
       </div>
 
-      {/* Step Content */}
-      <Card>
-        <CardContent className="p-6">{renderStep()}</CardContent>
-      </Card>
-    </div>
+      {/* Phone Verification Modal */}
+      <Dialog open={showPhoneVerificationModal} onOpenChange={setShowPhoneVerificationModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
+              <Smartphone className="h-6 w-6 text-amber-600" />
+            </div>
+            <DialogTitle className="text-center">Phone Verification Required</DialogTitle>
+            <DialogDescription className="text-center">
+              To protect our marketplace from spam and ensure quality listings,
+              we require all sellers to verify their phone number before posting equipment.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="flex items-start gap-3 rounded-lg border p-3 bg-muted/50">
+              <ShieldCheck className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium">Why we require verification</p>
+                <ul className="mt-1 text-muted-foreground space-y-1">
+                  <li>• Prevents fake listings and spam</li>
+                  <li>• Ensures buyers can reach you</li>
+                  <li>• Builds trust in the marketplace</li>
+                </ul>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground text-center">
+              Your listing will be saved. After verification, you can publish it immediately.
+            </p>
+          </div>
+          <DialogFooter className="flex-col sm:flex-col gap-2">
+            <Button
+              className="w-full"
+              onClick={() => router.push("/settings?verify=phone")}
+            >
+              <Smartphone className="w-4 h-4 me-2" />
+              Verify Phone Number
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => setShowPhoneVerificationModal(false)}
+            >
+              I&apos;ll do it later
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

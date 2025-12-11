@@ -33,11 +33,12 @@ import {
   ChevronRight,
   Loader2,
   X,
-  Home,
-  Heart,
   LayoutGrid,
   List,
 } from "lucide-react";
+import { DateRange } from "react-day-picker";
+import { AvailabilityFilter } from "@/components/features/search/availability-filter";
+import { AvailabilityStatusBadge } from "@/components/features/search/availability-status-badge";
 
 interface Category {
   id: string;
@@ -56,6 +57,7 @@ interface Equipment {
   model: string;
   year: number | null;
   condition: string;
+  status: "ACTIVE" | "RENTED" | "SOLD" | "PAUSED" | "DRAFT" | "ARCHIVED";
   listingType: "FOR_RENT" | "FOR_SALE" | "BOTH";
   rentalPrice: string | null;
   rentalPriceUnit: string | null;
@@ -65,6 +67,7 @@ interface Equipment {
   locationCity: string;
   locationRegion: string;
   locationCountry: string;
+  hasAvailabilityConflict?: boolean; // Added when date range filter is used
   category: {
     id: string;
     nameEn: string;
@@ -135,6 +138,10 @@ export default function SearchPage() {
   const [sortOrder, setSortOrder] = useState(searchParams.get("sortOrder") || "desc");
   const [page, setPage] = useState(parseInt(searchParams.get("page") || "1"));
 
+  // Availability filters
+  const [showUnavailable, setShowUnavailable] = useState(true); // Show rented/sold items by default
+  const [dateRange, setDateRange] = useState<DateRange | undefined>();
+
   // Data state
   const [categories, setCategories] = useState<Category[]>([]);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
@@ -195,8 +202,14 @@ export default function SearchPage() {
     if (sortBy !== "createdAt") params.set("sortBy", sortBy);
     if (sortOrder !== "desc") params.set("sortOrder", sortOrder);
     if (page > 1) params.set("page", page.toString());
+
+    // Availability filters
+    if (!showUnavailable) params.set("showUnavailable", "false");
+    if (dateRange?.from) params.set("availableFrom", dateRange.from.toISOString());
+    if (dateRange?.to) params.set("availableTo", dateRange.to.toISOString());
+
     return params;
-  }, [category, city, country, condition, minPrice, maxPrice, deliveryOnly, instantBookOnly, sortBy, sortOrder, page]);
+  }, [category, city, country, condition, minPrice, maxPrice, deliveryOnly, instantBookOnly, sortBy, sortOrder, page, showUnavailable, dateRange]);
 
   // Fetch equipment
   useEffect(() => {
@@ -235,10 +248,12 @@ export default function SearchPage() {
     setMaxPrice("");
     setDeliveryOnly(false);
     setInstantBookOnly(false);
+    setShowUnavailable(true);
+    setDateRange(undefined);
     setPage(1);
   };
 
-  const hasActiveFilters = category || city || country || condition || minPrice || maxPrice || deliveryOnly || instantBookOnly;
+  const hasActiveFilters = category || city || country || condition || minPrice || maxPrice || deliveryOnly || instantBookOnly || !showUnavailable || dateRange?.from;
 
   const cities = country === "BH" ? BAHRAIN_CITIES : SAUDI_CITIES;
 
@@ -355,6 +370,19 @@ export default function SearchPage() {
 
       <Separator />
 
+      {/* Availability Filters */}
+      <div>
+        <label className="text-sm font-medium mb-3 block">Availability</label>
+        <AvailabilityFilter
+          showUnavailable={showUnavailable}
+          onShowUnavailableChange={(v) => { setShowUnavailable(v); setPage(1); }}
+          dateRange={dateRange}
+          onDateRangeChange={(r) => { setDateRange(r); setPage(1); }}
+        />
+      </div>
+
+      <Separator />
+
       {/* Quick Filters */}
       <div className="space-y-3">
         <label className="text-sm font-medium block">Options</label>
@@ -394,54 +422,6 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-lg">E</span>
-            </div>
-            <span className="font-semibold text-lg">Equipment Souq</span>
-          </Link>
-          <div className="flex items-center gap-3">
-            {/* Currency Display Toggle (converts prices, doesn't filter) */}
-            <div className="flex items-center rounded-lg border bg-muted p-1">
-              <button
-                onClick={() => handleDisplayCurrencyChange("SAR")}
-                className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-                  displayCurrency === "SAR"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                SAR
-              </button>
-              <button
-                onClick={() => handleDisplayCurrencyChange("BHD")}
-                className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-                  displayCurrency === "BHD"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                BHD
-              </button>
-            </div>
-            <Link href="/favorites">
-              <Button variant="ghost" size="icon" title="My Favorites">
-                <Heart className="w-4 h-4" />
-              </Button>
-            </Link>
-            <Link href="/">
-              <Button variant="ghost" size="sm">
-                <Home className="w-4 h-4 me-2" />
-                Home
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
-
       {/* Search Header */}
       <div className="border-b bg-card/50">
         <div className="container mx-auto px-4 py-4">
@@ -485,6 +465,29 @@ export default function SearchPage() {
               )}
             </p>
             <div className="flex items-center gap-3">
+              {/* Currency Toggle */}
+              <div className="flex items-center rounded-lg border bg-muted p-1">
+                <button
+                  onClick={() => handleDisplayCurrencyChange("SAR")}
+                  className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${
+                    displayCurrency === "SAR"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  SAR
+                </button>
+                <button
+                  onClick={() => handleDisplayCurrencyChange("BHD")}
+                  className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${
+                    displayCurrency === "BHD"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  BHD
+                </button>
+              </div>
               {/* View Toggle */}
               <div className="flex items-center rounded-lg border bg-muted p-1">
                 <button
@@ -605,6 +608,16 @@ export default function SearchPage() {
                               )}
                             </div>
 
+                            {/* Status Badge - show for rented/sold items or date conflicts */}
+                            {(item.status !== "ACTIVE" || item.hasAvailabilityConflict) && (
+                              <div className="absolute top-2 end-2">
+                                <AvailabilityStatusBadge
+                                  status={item.status}
+                                  hasAvailabilityConflict={item.hasAvailabilityConflict}
+                                />
+                              </div>
+                            )}
+
                             {/* Price */}
                             <div className="absolute bottom-2 end-2">
                               {item.priceOnRequest ? (
@@ -685,6 +698,16 @@ export default function SearchPage() {
                                   </Badge>
                                 )}
                               </div>
+
+                              {/* Status Badge - show for rented/sold items or date conflicts */}
+                              {(item.status !== "ACTIVE" || item.hasAvailabilityConflict) && (
+                                <div className="absolute top-2 end-2">
+                                  <AvailabilityStatusBadge
+                                    status={item.status}
+                                    hasAvailabilityConflict={item.hasAvailabilityConflict}
+                                  />
+                                </div>
+                              )}
                             </div>
 
                             {/* Content */}

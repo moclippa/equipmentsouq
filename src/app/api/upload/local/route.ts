@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
+import { put } from "@vercel/blob";
 
 /**
  * POST /api/upload/local
- * Upload files to local storage (development only)
- * In production, use S3 presigned URLs via /api/upload
+ * Upload files using Vercel Blob storage
+ * (Named "local" for backwards compatibility with frontend)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -17,7 +16,7 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    const category = formData.get("category") as string || "equipment";
+    const category = (formData.get("category") as string) || "equipment";
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -41,35 +40,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create upload directory if it doesn't exist
-    const uploadDir = path.join(process.cwd(), "public", "uploads", category);
-    await mkdir(uploadDir, { recursive: true });
-
     // Generate unique filename
     const ext = file.name.split(".").pop() || "jpg";
     const sanitizedName = file.name
-      .replace(/\.[^/.]+$/, "") // Remove extension
+      .replace(/\.[^/.]+$/, "")
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "-")
       .substring(0, 50);
-    const filename = `${Date.now()}-${sanitizedName}.${ext}`;
-    const filepath = path.join(uploadDir, filename);
+    const filename = `${category}/${Date.now()}-${sanitizedName}.${ext}`;
 
-    // Write file
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    await writeFile(filepath, buffer);
-
-    // Return public URL
-    const publicUrl = `/uploads/${category}/${filename}`;
+    // Upload to Vercel Blob
+    const blob = await put(filename, file, {
+      access: "public",
+      addRandomSuffix: false,
+    });
 
     return NextResponse.json({
       success: true,
-      url: publicUrl,
-      filename,
+      url: blob.url,
+      filename: blob.pathname,
     });
   } catch (error) {
-    console.error("Local upload error:", error);
+    console.error("Upload error:", error);
     return NextResponse.json(
       { error: "Failed to upload file" },
       { status: 500 }

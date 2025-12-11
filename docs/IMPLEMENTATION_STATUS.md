@@ -1,6 +1,6 @@
 # EquipmentSouq Implementation Status
 
-Last Updated: 2025-12-10 (Sprint 12: Complete + Availability Calendar Feature)
+Last Updated: 2025-12-11 (Sprint 15: Request-Based Booking System)
 
 ## Business Model Pivot
 
@@ -36,6 +36,152 @@ Last Updated: 2025-12-10 (Sprint 12: Complete + Availability Calendar Feature)
 | 11 | Admin Panel | **Completed** |
 | 12 | Polish & Launch | **Completed** |
 | 13 | Availability Calendar | **Completed** |
+| 14 | Enhanced Search & Availability Filters | **Completed** |
+| 15 | Request-Based Booking System | **Completed** |
+
+---
+
+## Sprint 15: Request-Based Booking System - COMPLETED
+
+### User Story
+Owners want automatic calendar management with the ability to override. When a renter requests dates, the system creates a pending hold. The owner can confirm or decline within 48 hours, after which the request auto-expires.
+
+### Features Implemented
+
+#### Schema Changes
+- [x] Added `BookingRequestStatus` enum (PENDING, CONFIRMED, DECLINED, EXPIRED, CANCELLED)
+- [x] Added `BookingRequest` model with:
+  - Equipment and renter relations
+  - Date range (startDate, endDate)
+  - Status tracking
+  - Renter contact info (name, phone, email, message)
+  - Owner response field
+  - Expiry timestamp (48h from creation)
+  - Proper indexes for queries
+- [x] Added `bookingRequests` relation to Equipment and User models
+
+#### API Endpoints
+- [x] `POST /api/booking-requests` - Create new booking request
+  - Validates date range (no past dates, end > start)
+  - Checks for conflicting pending/confirmed requests
+  - Checks for existing availability blocks
+  - Creates 48-hour expiry
+  - Creates notification for owner
+- [x] `GET /api/booking-requests` - List requests (with role param: owner/renter)
+  - Supports status filtering
+  - Supports equipment filtering
+  - Pagination
+- [x] `GET /api/booking-requests/[id]` - Get single request
+- [x] `PATCH /api/booking-requests/[id]` - Update request status
+  - `confirm` - Creates availability block, notifies renter with owner contact
+  - `decline` - Notifies renter with reason
+  - `cancel` - Either party can cancel, notifies the other
+- [x] `GET/POST /api/cron/expire-booking-requests` - Auto-expire pending requests (hourly cron)
+
+#### UI Components
+- [x] `BookingRequestForm` - Date picker + contact form for renters
+  - Success state with confirmation message
+  - Session-aware (pre-fills user info)
+- [x] `BookingRequestCard` - Displays request with status, actions
+  - Confirm/Decline dialogs for owners
+  - Cancel option for renters
+  - Expiry countdown
+  - Contact info display
+
+#### Page Integrations
+- [x] Equipment detail page: Tabs for "Send Inquiry" vs "Request Dates" (for rental equipment)
+- [x] `/dashboard/booking-requests` page: Full management dashboard
+  - Toggle between "Received Requests" (owner) and "My Requests" (renter)
+  - Status filtering (Pending, Confirmed, Declined, Expired, Cancelled)
+  - Pending count badge
+
+#### Auto-Expiry Cron
+- [x] Pending requests auto-expire after 48 hours
+- [x] Cron runs hourly at minute 0
+- [x] Notifies renters when their request expires
+
+### Key Files Created
+- `src/app/api/booking-requests/route.ts` - Main booking requests API
+- `src/app/api/booking-requests/[id]/route.ts` - Single request API
+- `src/app/api/cron/expire-booking-requests/route.ts` - Auto-expiry cron
+- `src/components/features/booking/booking-request-form.tsx` - Request form
+- `src/components/features/booking/booking-request-card.tsx` - Request card
+- `src/app/(dashboard)/dashboard/booking-requests/page.tsx` - Management dashboard
+
+### Key Files Modified
+- `prisma/schema.prisma` - Added BookingRequest model + enum
+- `src/app/(search)/equipment/[id]/page.tsx` - Added tabs with booking form
+- `vercel.json` - Added hourly cron for expiry
+
+### Booking Request Flow
+```
+1. Renter views rental equipment
+2. Clicks "Request Dates" tab
+3. Selects date range + fills contact info
+4. System creates PENDING request (48h expiry)
+5. Owner notified (SMS + in-app)
+6. Owner reviews in /dashboard/booking-requests
+7. Owner confirms → Availability block created, renter notified with contact
+   OR Owner declines → Renter notified with reason
+   OR No response → Auto-expires after 48h, renter notified
+```
+
+---
+
+## Sprint 14: Enhanced Search & Availability Filters - COMPLETED
+
+### User Story
+Users want to see rented/sold equipment (for market visibility), filter by availability, search by dates (e.g., "bulldozer in Bahrain from Dec 12-14"), and have sold listings auto-archive after 30 days.
+
+### Features Implemented
+
+#### Schema Changes
+- [x] Added `statusChangedAt` field to Equipment model (tracks when status changes)
+- [x] Added composite index on `[status, statusChangedAt]` for efficient queries
+
+#### API Changes
+- [x] Removed hardcoded `status: "ACTIVE"` filter from equipment search
+- [x] Added new query params: `showUnavailable`, `availableOnly`, `availableFrom`, `availableTo`
+- [x] Added availability conflict detection (checks AvailabilityBlock for date range conflicts)
+- [x] Equipment PATCH now sets `statusChangedAt` when status changes
+- [x] Created `/api/equipment/recent-transactions` endpoint for homepage section
+- [x] Created `/api/cron/archive-sold` cron endpoint (runs daily at 2 AM UTC)
+
+#### New Components
+- [x] `AvailabilityStatusBadge` - Displays "Currently Rented", "Sold", "May be unavailable" badges
+- [x] `DateRangePicker` - Reusable date range picker using shadcn Calendar in range mode
+- [x] `AvailabilityFilter` - Filter panel with show/hide unavailable toggle + date picker
+- [x] `RecentTransactions` - "Just Sold & Rented" homepage section
+
+#### Page Integrations
+- [x] Search page: Added availability filters, status badges on cards (grid & list views)
+- [x] Homepage: Added "Just Sold & Rented" section with recent transactions
+- [x] Equipment detail: Added prominent status banner for RENTED/SOLD items
+
+#### Auto-Archive Cron
+- [x] Sold listings automatically archived after 30 days
+- [x] Vercel cron configured to run daily at 2 AM UTC
+- [x] CRON_SECRET environment variable for security
+
+### Key Files Created
+- `src/components/features/search/availability-status-badge.tsx`
+- `src/components/features/search/date-range-picker.tsx`
+- `src/components/features/search/availability-filter.tsx`
+- `src/components/features/homepage/recent-transactions.tsx`
+- `src/app/api/equipment/recent-transactions/route.ts`
+- `src/app/api/cron/archive-sold/route.ts`
+- `vercel.json` (cron configuration)
+
+### Key Files Modified
+- `prisma/schema.prisma` - Added statusChangedAt field + index
+- `src/app/api/equipment/route.ts` - Removed hardcoded status, added filter params
+- `src/app/api/equipment/[id]/route.ts` - Track statusChangedAt on status change
+- `src/app/(search)/search/page.tsx` - Added filters and status badges
+- `src/app/page.tsx` - Added RecentTransactions section
+- `src/app/(search)/equipment/[id]/page.tsx` - Added status banner
+
+### Configuration
+Add `CRON_SECRET` to environment variables for cron endpoint security.
 
 ---
 
@@ -265,6 +411,9 @@ Last Updated: 2025-12-10 (Sprint 12: Complete + Availability Calendar Feature)
 ### Re-added Models (Sprint 13)
 - [x] AvailabilityBlock (for owner availability calendar - simpler than before)
 
+### New Models (Sprint 15)
+- [x] BookingRequest (request-based soft hold system for rentals)
+
 ---
 
 ## Tech Stack Versions
@@ -307,12 +456,25 @@ Last Updated: 2025-12-10 (Sprint 12: Complete + Availability Calendar Feature)
 ### Equipment (Classifieds)
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/equipment` | GET/POST | List/create equipment |
+| `/api/equipment` | GET/POST | List/create equipment (supports showUnavailable, availableOnly, availableFrom, availableTo params) |
 | `/api/equipment/[id]` | GET/PATCH/DELETE | Equipment detail CRUD |
 | `/api/equipment/[id]/availability` | GET/POST/DELETE | Availability blocks CRUD |
+| `/api/equipment/recent-transactions` | GET | Get recently sold/rented equipment (last 30 days) |
 | `/api/categories` | GET | List categories |
 
-### Leads (New)
+### Booking Requests
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/booking-requests` | GET/POST | List/create booking requests |
+| `/api/booking-requests/[id]` | GET/PATCH | Get/update request (confirm/decline/cancel) |
+
+### Cron Jobs
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/cron/archive-sold` | POST/GET | Auto-archive sold listings > 30 days old (runs daily 2 AM UTC) |
+| `/api/cron/expire-booking-requests` | POST/GET | Auto-expire pending requests > 48h old (runs hourly) |
+
+### Leads
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/leads` | GET/POST | List leads (owner) / Create lead |
@@ -352,6 +514,7 @@ S3_BUCKET=...
 S3_REGION=...
 S3_ACCESS_KEY=...
 S3_SECRET_KEY=...
+CRON_SECRET=...           # Vercel cron job authentication
 ```
 
 ---

@@ -44,6 +44,96 @@ export default async function DashboardPage() {
         </p>
       </div>
 
+      {/* Quick Actions - shown first on mobile */}
+      <Card className="md:hidden">
+        <CardHeader>
+          <CardTitle>Quick Actions</CardTitle>
+          <CardDescription>
+            Get started with EquipmentSouq
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Link
+            href="/equipment/new"
+            className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+          >
+            <div>
+              <h3 className="font-medium">List Equipment</h3>
+              <p className="text-sm text-muted-foreground">
+                Start earning by listing your equipment
+              </p>
+            </div>
+            <span className="text-sm text-primary">
+              Get Started &rarr;
+            </span>
+          </Link>
+          <Link
+            href="/search"
+            className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+          >
+            <div>
+              <h3 className="font-medium">Browse Equipment</h3>
+              <p className="text-sm text-muted-foreground">
+                Find equipment for your project
+              </p>
+            </div>
+            <span className="text-sm text-primary">
+              Search &rarr;
+            </span>
+          </Link>
+          <Link
+            href="/settings/business"
+            className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+          >
+            <div>
+              <h3 className="font-medium">Complete Profile</h3>
+              <p className="text-sm text-muted-foreground">
+                Add business details to get verified
+              </p>
+            </div>
+            <span className="text-sm text-primary">
+              Setup &rarr;
+            </span>
+          </Link>
+        </CardContent>
+      </Card>
+
+      {/* Your Listings - mobile only */}
+      <Card className="md:hidden">
+        <CardHeader>
+          <CardTitle>Your Listings</CardTitle>
+          <CardDescription>
+            Manage your equipment
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {activeListings > 0 ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                You have {activeListings} active listing{activeListings !== 1 ? "s" : ""}.
+              </p>
+              <Link
+                href="/my-listings"
+                className="inline-flex items-center text-sm text-primary hover:underline"
+              >
+                View all listings &rarr;
+              </Link>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <Package className="h-12 w-12 mx-auto mb-3 opacity-20" />
+              <p>No listings yet</p>
+              <Link
+                href="/equipment/new"
+                className="inline-flex items-center mt-2 text-sm text-primary hover:underline"
+              >
+                Create your first listing &rarr;
+              </Link>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -100,7 +190,8 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      {/* Desktop layout - Quick Actions shown here */}
+      <div className="hidden md:grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Quick Actions</CardTitle>

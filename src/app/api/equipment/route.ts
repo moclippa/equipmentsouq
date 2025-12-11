@@ -52,12 +52,30 @@ const createEquipmentSchema = z.object({
 /**
  * POST /api/equipment
  * Create a new equipment listing
+ * Requires: authenticated user with verified phone
  */
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Check phone verification
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { phoneVerified: true, phone: true },
+    });
+
+    if (!user?.phone || !user?.phoneVerified) {
+      return NextResponse.json(
+        {
+          error: "Phone verification required",
+          code: "PHONE_NOT_VERIFIED",
+          message: "Please verify your phone number before posting equipment"
+        },
+        { status: 403 }
+      );
     }
 
     const body = await request.json();
@@ -172,7 +190,8 @@ export async function GET(request: NextRequest) {
       const equipment = await prisma.equipment.findMany({
         where: {
           id: { in: idArray },
-          status: "ACTIVE",
+          // Show all public statuses (favorites can include rented/sold items)
+          status: { in: ["ACTIVE", "RENTED", "SOLD"] },
         },
         include: {
           category: {
@@ -208,10 +227,25 @@ export async function GET(request: NextRequest) {
     const sortBy = searchParams.get("sortBy") || "createdAt";
     const sortOrder = searchParams.get("sortOrder") || "desc";
 
-    // Build where clause
-    const where: Record<string, unknown> = {
-      status: "ACTIVE",
-    };
+    // Availability filters
+    const showUnavailable = searchParams.get("showUnavailable") !== "false"; // default: true
+    const availableOnly = searchParams.get("availableOnly") === "true";
+    const availableFrom = searchParams.get("availableFrom");
+    const availableTo = searchParams.get("availableTo");
+
+    // Build where clause with dynamic status filtering
+    const where: Record<string, unknown> = {};
+
+    // Status filtering: show public statuses by default, hide internal ones
+    if (availableOnly) {
+      where.status = "ACTIVE";
+    } else if (showUnavailable) {
+      // Show all public statuses (ACTIVE, RENTED, SOLD)
+      where.status = { in: ["ACTIVE", "RENTED", "SOLD"] };
+    } else {
+      // Hide rented/sold, show only active
+      where.status = "ACTIVE";
+    }
 
     // Full-text search
     if (search) {
@@ -291,8 +325,50 @@ export async function GET(request: NextRequest) {
       take: limit,
     });
 
+    // If date range provided, check availability conflicts for rental listings
+    let equipmentWithConflicts = equipment;
+    if (availableFrom && availableTo) {
+      const fromDate = new Date(availableFrom);
+      const toDate = new Date(availableTo);
+
+      // Get all equipment IDs that have rental capability
+      const rentalEquipmentIds = equipment
+        .filter((e) => e.listingType === "FOR_RENT" || e.listingType === "BOTH")
+        .map((e) => e.id);
+
+      // Find conflicts in one query
+      const conflicts = await prisma.availabilityBlock.findMany({
+        where: {
+          equipmentId: { in: rentalEquipmentIds },
+          isAvailable: false, // Only check unavailable blocks
+          OR: [
+            // Block overlaps with requested date range
+            {
+              startDate: { lte: toDate },
+              endDate: { gte: fromDate },
+            },
+          ],
+        },
+        select: { equipmentId: true },
+      });
+
+      const conflictingIds = new Set(conflicts.map((c) => c.equipmentId));
+
+      // Add hasAvailabilityConflict flag to each equipment
+      equipmentWithConflicts = equipment.map((e) => ({
+        ...e,
+        hasAvailabilityConflict:
+          // SOLD items are always unavailable
+          e.status === "SOLD" ||
+          // RENTED items may have availability issues
+          e.status === "RENTED" ||
+          // Check availability blocks for rental listings
+          conflictingIds.has(e.id),
+      }));
+    }
+
     return NextResponse.json({
-      equipment,
+      equipment: equipmentWithConflicts,
       pagination: {
         page,
         limit,

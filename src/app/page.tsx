@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Header } from "@/components/layout/header";
+import { RecentTransactions } from "@/components/features/homepage/recent-transactions";
 import {
   Construction,
   ArrowUpFromLine,
@@ -23,7 +25,6 @@ import {
   CheckCircle2,
   ArrowRight,
   Star,
-  Heart,
 } from "lucide-react";
 
 async function getStats() {
@@ -52,6 +53,26 @@ async function getFeaturedEquipment() {
   });
 }
 
+async function getRecentTransactions() {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  return prisma.equipment.findMany({
+    where: {
+      status: { in: ["RENTED", "SOLD"] },
+      OR: [
+        { statusChangedAt: { gte: thirtyDaysAgo } },
+        { statusChangedAt: null, updatedAt: { gte: thirtyDaysAgo } },
+      ],
+    },
+    orderBy: [{ statusChangedAt: "desc" }, { updatedAt: "desc" }],
+    take: 8,
+    include: {
+      category: { select: { nameEn: true, nameAr: true, slug: true } },
+      images: { where: { isPrimary: true }, take: 1 },
+    },
+  });
+}
+
 export default async function Home() {
   const session = await auth();
   if (session) {
@@ -59,11 +80,11 @@ export default async function Home() {
   }
 
   const t = await getTranslations("common");
-  const tNav = await getTranslations("nav");
 
-  const [stats, featuredEquipment] = await Promise.all([
+  const [stats, featuredEquipment, recentTransactions] = await Promise.all([
     getStats(),
     getFeaturedEquipment(),
+    getRecentTransactions(),
   ]);
 
   const categories = [
@@ -78,44 +99,7 @@ export default async function Home() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-lg">E</span>
-            </div>
-            <span className="font-semibold text-xl">{t("appName")}</span>
-          </Link>
-
-          <nav className="hidden md:flex items-center gap-6">
-            <Link href="/search" className="text-sm font-medium hover:text-primary transition-colors">
-              {tNav("search")}
-            </Link>
-            <Link href="/how-it-works" className="text-sm font-medium hover:text-primary transition-colors">
-              {tNav("howItWorks")}
-            </Link>
-          </nav>
-
-          <div className="flex items-center gap-3">
-            <Link href="/favorites" title="My Favorites">
-              <Button variant="ghost" size="icon">
-                <Heart className="w-4 h-4" />
-              </Button>
-            </Link>
-            <Link href="/login">
-              <Button variant="ghost" size="sm">
-                {tNav("login")}
-              </Button>
-            </Link>
-            <Link href="/register">
-              <Button size="sm">
-                {tNav("register")}
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
+      <Header variant="marketing" />
 
       <main className="flex-1">
         {/* Hero Section */}
@@ -310,6 +294,25 @@ export default async function Home() {
               </div>
             </div>
           </section>
+        )}
+
+        {/* Just Sold & Rented Section */}
+        {recentTransactions.length > 0 && (
+          <RecentTransactions
+            equipment={recentTransactions.map((eq) => ({
+              id: eq.id,
+              titleEn: eq.titleEn,
+              titleAr: eq.titleAr,
+              make: eq.make,
+              model: eq.model,
+              status: eq.status as "RENTED" | "SOLD",
+              statusChangedAt: eq.statusChangedAt?.toISOString() || null,
+              updatedAt: eq.updatedAt.toISOString(),
+              category: eq.category,
+              images: eq.images,
+              locationCity: eq.locationCity,
+            }))}
+          />
         )}
 
         {/* How It Works */}

@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/archive-sold",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/expire-booking-requests",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

@@ -87,6 +87,38 @@
       "resendIn": "Resend in {seconds}s",
       "didntReceive": "Didn't receive the code?"
     },
+    "forgotPassword": {
+      "title": "Reset Password",
+      "subtitle": "Enter your email and we'll send you a reset link",
+      "email": "Email Address",
+      "sendResetLink": "Send Reset Link",
+      "backToLogin": "Back to Login",
+      "emailSent": "Reset link sent! Check your email.",
+      "checkEmail": "Check Your Email",
+      "checkEmailDescription": "We've sent a password reset link to your email address.",
+      "checkSpam": "If you don't see the email, check your spam folder.",
+      "tryAgain": "Try Different Email",
+      "errors": {
+        "generic": "Something went wrong. Please try again."
+      }
+    },
+    "resetPassword": {
+      "title": "Set New Password",
+      "subtitle": "Enter your new password below",
+      "newPassword": "New Password",
+      "confirmPassword": "Confirm Password",
+      "passwordRequirements": "Password must be at least 8 characters with uppercase, lowercase, and a number.",
+      "resetPassword": "Reset Password",
+      "backToLogin": "Back to Login",
+      "success": "Password reset successfully! You can now log in.",
+      "validating": "Validating reset link...",
+      "invalidLink": "Invalid Reset Link",
+      "invalidLinkDescription": "This password reset link is invalid or has expired.",
+      "requestNewLink": "Request New Reset Link",
+      "errors": {
+        "generic": "Something went wrong. Please try again."
+      }
+    },
     "allRightsReserved": "All rights reserved.",
     "errors": {
       "invalidCredentials": "Invalid email or password",

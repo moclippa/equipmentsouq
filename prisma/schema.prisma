@@ -68,6 +68,14 @@ enum Country {
   BH
 }
 
+enum BookingRequestStatus {
+  PENDING       // Renter requested, awaiting owner response
+  CONFIRMED     // Owner approved the request
+  DECLINED      // Owner rejected the request
+  EXPIRED       // Owner didn't respond in time (auto-expired)
+  CANCELLED     // Either party cancelled
+}
+
 // ============================================================================
 // USER & AUTHENTICATION
 // ============================================================================
@@ -109,6 +117,10 @@ model User {
 
   // As Owner
   equipment           Equipment[]
+
+  // Booking Requests (as renter)
+  bookingRequests     BookingRequest[]  @relation("RenterBookingRequests")
+  // Booking Requests received (as owner) - accessed via equipment relation
 
   // Common
   notifications       Notification[]
@@ -306,6 +318,7 @@ model Equipment {
 
   // Status
   status              ListingStatus     @default(DRAFT)
+  statusChangedAt     DateTime?         // Track when status last changed (for auto-archive + "Just Sold" display)
 
   // Metrics
   viewCount           Int               @default(0)
@@ -320,10 +333,12 @@ model Equipment {
   images              EquipmentImage[]
   leads               Lead[]
   availabilityBlocks  AvailabilityBlock[]
+  bookingRequests     BookingRequest[]
 
   @@index([ownerId])
   @@index([categoryId])
   @@index([status])
+  @@index([status, statusChangedAt])  // For recent transactions query
   @@index([listingType])
   @@index([locationCity])
   @@index([locationCountry])
@@ -407,6 +422,53 @@ model AvailabilityBlock {
   @@index([equipmentId])
   @@index([startDate, endDate])
   @@index([equipmentId, startDate, endDate])
+}
+
+// ============================================================================
+// BOOKING REQUESTS (Request-Based Soft Hold System)
+// ============================================================================
+
+model BookingRequest {
+  id              String                @id @default(cuid())
+
+  // Equipment being requested
+  equipmentId     String
+  equipment       Equipment             @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  // Renter making the request
+  renterId        String
+  renter          User                  @relation("RenterBookingRequests", fields: [renterId], references: [id], onDelete: Cascade)
+
+  // Requested dates
+  startDate       DateTime              @db.Date
+  endDate         DateTime              @db.Date
+
+  // Request status
+  status          BookingRequestStatus  @default(PENDING)
+
+  // Communication
+  renterMessage   String?               @db.Text  // Message from renter to owner
+  ownerResponse   String?               @db.Text  // Owner's response/notes
+
+  // Contact info (captured at request time)
+  renterName      String
+  renterPhone     String
+  renterEmail     String?
+
+  // Timing
+  expiresAt       DateTime              // When pending request auto-expires (e.g., 48h from creation)
+  respondedAt     DateTime?             // When owner responded
+
+  // Timestamps
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@index([equipmentId])
+  @@index([renterId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([equipmentId, startDate, endDate])
+  @@index([equipmentId, status])
 }
 
 // ============================================================================

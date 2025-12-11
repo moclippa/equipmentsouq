@@ -11,6 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ContactForm } from "@/components/features/leads/contact-form";
+import { AvailabilityStatusBadge } from "@/components/features/search/availability-status-badge";
+import { BookingRequestForm } from "@/components/features/booking/booking-request-form";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   MapPin,
   Calendar,
@@ -29,6 +32,8 @@ import {
   Copy,
   Pencil,
   BarChart3,
+  CalendarCheck,
+  MessageSquare,
 } from "lucide-react";
 import { useAnalytics } from "@/hooks/use-analytics";
 import { toast } from "sonner";
@@ -53,6 +58,7 @@ interface Equipment {
   hoursUsed: number | null;
   specifications: Record<string, unknown> | null;
   listingType: "FOR_RENT" | "FOR_SALE" | "BOTH";
+  status: "DRAFT" | "ACTIVE" | "RENTED" | "SOLD" | "PAUSED" | "ARCHIVED";
   rentalPrice: string | null;
   rentalPriceUnit: string | null;
   salePrice: string | null;
@@ -276,6 +282,31 @@ export default function EquipmentDetailPage({
       </div>
 
       <div className="container mx-auto px-4 py-6">
+        {/* Status Banner for Unavailable Items */}
+        {equipment.status !== "ACTIVE" && (
+          <div className="mb-6 p-4 rounded-lg border bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800">
+            <div className="flex items-center gap-3">
+              <AvailabilityStatusBadge status={equipment.status} size="md" />
+              <div>
+                <p className="font-medium text-amber-900 dark:text-amber-100">
+                  {equipment.status === "RENTED"
+                    ? "This equipment is currently rented"
+                    : equipment.status === "SOLD"
+                    ? "This equipment has been sold"
+                    : "This equipment is not currently available"}
+                </p>
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  {equipment.status === "RENTED"
+                    ? "Contact the owner to check future availability or similar equipment."
+                    : equipment.status === "SOLD"
+                    ? "Browse similar equipment or contact the owner for other listings."
+                    : "This listing may be temporarily unavailable."}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Left Column - Images & Details */}
           <div className="lg:col-span-2 space-y-6">
@@ -587,14 +618,44 @@ export default function EquipmentDetailPage({
 
                     <Separator />
 
-                    {/* Contact Form */}
-                    <ContactForm
-                      equipmentId={equipment.id}
-                      equipmentTitle={equipment.titleEn}
-                      listingType={equipment.listingType}
-                      ownerPhone={equipment.contactPhone}
-                      ownerWhatsApp={equipment.contactWhatsApp || undefined}
-                    />
+                    {/* Contact Options - Tabs for Rental, Simple Form for Sale-only */}
+                    {(equipment.listingType === "FOR_RENT" || equipment.listingType === "BOTH") && equipment.status === "ACTIVE" ? (
+                      <Tabs defaultValue="inquiry" className="w-full">
+                        <TabsList className="grid w-full grid-cols-2">
+                          <TabsTrigger value="inquiry" className="text-xs sm:text-sm">
+                            <MessageSquare className="w-3.5 h-3.5 me-1.5" />
+                            Send Inquiry
+                          </TabsTrigger>
+                          <TabsTrigger value="booking" className="text-xs sm:text-sm">
+                            <CalendarCheck className="w-3.5 h-3.5 me-1.5" />
+                            Request Dates
+                          </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="inquiry" className="mt-4">
+                          <ContactForm
+                            equipmentId={equipment.id}
+                            equipmentTitle={equipment.titleEn}
+                            listingType={equipment.listingType}
+                            ownerPhone={equipment.contactPhone}
+                            ownerWhatsApp={equipment.contactWhatsApp || undefined}
+                          />
+                        </TabsContent>
+                        <TabsContent value="booking" className="mt-4">
+                          <BookingRequestForm
+                            equipmentId={equipment.id}
+                            equipmentTitle={equipment.titleEn}
+                          />
+                        </TabsContent>
+                      </Tabs>
+                    ) : (
+                      <ContactForm
+                        equipmentId={equipment.id}
+                        equipmentTitle={equipment.titleEn}
+                        listingType={equipment.listingType}
+                        ownerPhone={equipment.contactPhone}
+                        ownerWhatsApp={equipment.contactWhatsApp || undefined}
+                      />
+                    )}
                   </>
                 )}
 

@@ -7,7 +7,7 @@ const sendOTPSchema = z.object({
   phone: z
     .string()
     .regex(/^\+966[0-9]{9}$|^\+973[0-9]{8}$/, "Invalid KSA or Bahrain phone number"),
-  type: z.enum(["LOGIN", "VERIFICATION"]).default("LOGIN"),
+  type: z.enum(["LOGIN", "VERIFICATION", "VERIFY"]).default("LOGIN"),
 });
 
 // Generate 6-digit OTP
@@ -18,7 +18,14 @@ function generateOTP(): string {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { phone, type } = sendOTPSchema.parse(body);
+
+    // Normalize phone number before validation
+    let rawPhone = (body.phone || "").replace(/\s/g, "");
+    if (!rawPhone.startsWith("+") && (rawPhone.startsWith("966") || rawPhone.startsWith("973"))) {
+      rawPhone = "+" + rawPhone;
+    }
+
+    const { phone, type } = sendOTPSchema.parse({ ...body, phone: rawPhone });
 
     // Check rate limiting (max 5 OTPs per hour per phone)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
@@ -65,7 +72,7 @@ export async function POST(request: NextRequest) {
       const messageBody =
         type === "LOGIN"
           ? `Your EquipmentSouq login code is: ${code}. Valid for 5 minutes.`
-          : `Your EquipmentSouq verification code is: ${code}. Valid for 5 minutes.`;
+          : `Your EquipmentSouq phone verification code is: ${code}. Valid for 5 minutes.`;
 
       await twilioClient.messages.create({
         body: messageBody,

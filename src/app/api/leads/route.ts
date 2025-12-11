@@ -6,9 +6,6 @@ import { notifyOwnerOfNewLead } from "@/lib/notifications/sms";
 
 const createLeadSchema = z.object({
   equipmentId: z.string().min(1),
-  name: z.string().min(1).max(100),
-  phone: z.string().min(8).max(20),
-  email: z.string().email().optional().or(z.literal("")),
   message: z.string().max(1000).optional(),
   interestedIn: z.enum(["rent", "buy", "both"]),
 });
@@ -16,9 +13,36 @@ const createLeadSchema = z.object({
 /**
  * POST /api/leads
  * Create a new lead (someone interested in equipment)
+ * Requires: authenticated user with verified phone
  */
 export async function POST(request: NextRequest) {
   try {
+    // Require authentication
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Please log in to contact equipment owners" },
+        { status: 401 }
+      );
+    }
+
+    // Check phone verification
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { phoneVerified: true, phone: true, fullName: true, email: true },
+    });
+
+    if (!user?.phone || !user?.phoneVerified) {
+      return NextResponse.json(
+        {
+          error: "Phone verification required",
+          code: "PHONE_NOT_VERIFIED",
+          message: "Please verify your phone number before contacting sellers"
+        },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const validation = createLeadSchema.safeParse(body);
 
@@ -63,13 +87,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create the lead
+    // Create the lead using verified user info
     const lead = await prisma.lead.create({
       data: {
         equipmentId: data.equipmentId,
-        name: data.name,
-        phone: data.phone,
-        email: data.email || null,
+        name: user.fullName,
+        phone: user.phone!, // We verified this exists above
+        email: user.email || null,
         message: data.message || null,
         interestedIn: data.interestedIn,
       },
@@ -86,7 +110,7 @@ export async function POST(request: NextRequest) {
       ownerPhone: equipment.owner.phone,
       ownerName: equipment.owner.fullName,
       equipmentTitle: equipment.titleEn,
-      leadName: data.name,
+      leadName: user.fullName,
       interestedIn: data.interestedIn,
     });
 

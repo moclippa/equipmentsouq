@@ -11,6 +11,7 @@ declare module "next-auth" {
       id: string;
       email?: string | null;
       phone?: string | null;
+      phoneVerified: boolean;
       fullName: string;
       role: UserRole;
       preferredLanguage: string;
@@ -24,6 +25,7 @@ declare module "next-auth" {
     id: string;
     email?: string | null;
     phone?: string | null;
+    phoneVerified: boolean;
     fullName: string;
     role: UserRole;
     preferredLanguage: string;
@@ -89,6 +91,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           id: user.id,
           email: user.email,
           phone: user.phone,
+          phoneVerified: !!user.phoneVerified,
           fullName: user.fullName,
           role: user.role,
           preferredLanguage: user.preferredLanguage,
@@ -185,6 +188,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           id: user.id,
           email: user.email,
           phone: user.phone,
+          phoneVerified: !!user.phoneVerified,
           fullName: user.fullName,
           role: user.role,
           preferredLanguage: user.preferredLanguage,
@@ -196,22 +200,40 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user, trigger, session }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.fullName = user.fullName;
         token.phone = user.phone;
+        token.phoneVerified = user.phoneVerified;
         token.preferredLanguage = user.preferredLanguage;
         token.preferredCurrency = user.preferredCurrency;
         token.country = user.country;
         token.businessProfileId = user.businessProfileId;
       }
 
-      // Handle session updates
-      if (trigger === "update" && session) {
-        token.preferredLanguage = session.preferredLanguage ?? token.preferredLanguage;
-        token.preferredCurrency = session.preferredCurrency ?? token.preferredCurrency;
+      // Handle session updates - refetch user from DB to get latest data
+      if (trigger === "update" && token.id) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: token.id as string },
+          select: {
+            fullName: true,
+            phoneVerified: true,
+            phone: true,
+            preferredLanguage: true,
+            preferredCurrency: true,
+            country: true,
+          },
+        });
+        if (dbUser) {
+          token.fullName = dbUser.fullName;
+          token.phoneVerified = !!dbUser.phoneVerified;
+          token.phone = dbUser.phone;
+          token.preferredLanguage = dbUser.preferredLanguage;
+          token.preferredCurrency = dbUser.preferredCurrency;
+          token.country = dbUser.country;
+        }
       }
 
       return token;
@@ -221,6 +243,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.user.role = token.role as UserRole;
       session.user.fullName = token.fullName as string;
       session.user.phone = token.phone as string | null;
+      session.user.phoneVerified = token.phoneVerified as boolean;
       session.user.preferredLanguage = token.preferredLanguage as string;
       session.user.preferredCurrency = token.preferredCurrency as Currency;
       session.user.country = token.country as Country;

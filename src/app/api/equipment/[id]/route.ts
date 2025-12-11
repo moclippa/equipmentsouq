@@ -88,10 +88,10 @@ export async function PATCH(
 
     const { id } = await params;
 
-    // Check ownership
+    // Check ownership and get current status
     const existing = await prisma.equipment.findUnique({
       where: { id },
-      select: { ownerId: true },
+      select: { ownerId: true, status: true },
     });
 
     if (!existing) {
@@ -118,6 +118,11 @@ export async function PATCH(
     delete updateData.leadCount;
     delete updateData.createdAt;
     delete updateData.categoryId; // Can't change category after creation
+
+    // Track status changes for "Just Sold/Rented" feature and auto-archive
+    if (updateData.status && updateData.status !== existing.status) {
+      updateData.statusChangedAt = new Date();
+    }
 
     // Use transaction for equipment + images update
     const equipment = await prisma.$transaction(async (tx) => {
@@ -216,7 +221,7 @@ export async function DELETE(
     // Soft delete by archiving
     await prisma.equipment.update({
       where: { id },
-      data: { status: "ARCHIVED" },
+      data: { status: "ARCHIVED", statusChangedAt: new Date() },
     });
 
     return NextResponse.json({ success: true });

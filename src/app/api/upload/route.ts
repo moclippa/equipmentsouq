@@ -1,23 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import {
-  getUploadUrl,
-  validateFileType,
-  getMaxFileSize,
-  type FileCategory,
-} from "@/lib/storage";
-import { z } from "zod";
-
-const uploadRequestSchema = z.object({
-  fileName: z.string().min(1).max(255),
-  contentType: z.string().min(1),
-  category: z.enum(["documents", "equipment", "inspections", "avatars"]),
-  fileSize: z.number().positive(),
-});
+import { put } from "@vercel/blob";
 
 /**
  * POST /api/upload
- * Get a presigned URL for direct upload to S3
+ * Upload a file to Vercel Blob storage
  */
 export async function POST(request: NextRequest) {
   try {
@@ -26,64 +13,56 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
-    const validation = uploadRequestSchema.safeParse(body);
+    const formData = await request.formData();
+    const file = formData.get("file") as File | null;
+    const category = (formData.get("category") as string) || "equipment";
 
-    if (!validation.success) {
-      return NextResponse.json(
-        { error: "Invalid request", details: validation.error.issues },
-        { status: 400 }
-      );
+    if (!file) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
-
-    const { fileName, contentType, category, fileSize } = validation.data;
 
     // Validate file type
-    if (!validateFileType(contentType, category as FileCategory)) {
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (!allowedTypes.includes(file.type)) {
       return NextResponse.json(
-        { error: `Invalid file type for ${category}` },
+        { error: "Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed." },
         { status: 400 }
       );
     }
 
-    // Validate file size
-    const maxSize = getMaxFileSize(category as FileCategory);
-    if (fileSize > maxSize) {
+    // Validate file size (15MB max)
+    const maxSize = 15 * 1024 * 1024;
+    if (file.size > maxSize) {
       return NextResponse.json(
-        { error: `File too large. Maximum size is ${maxSize / 1024 / 1024}MB` },
+        { error: "File too large. Maximum size is 15MB." },
         { status: 400 }
       );
     }
 
-    // Check if S3 is configured
-    if (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY) {
-      // Development mode: return mock URL
-      const mockUrl = `/uploads/${category}/${Date.now()}-${fileName}`;
-      return NextResponse.json({
-        uploadUrl: null, // No presigned URL in dev mode
-        fileKey: mockUrl,
-        publicUrl: mockUrl,
-        devMode: true,
-        message: "S3 not configured. Using mock URL for development.",
-      });
-    }
+    // Generate unique filename
+    const ext = file.name.split(".").pop() || "jpg";
+    const sanitizedName = file.name
+      .replace(/\.[^/.]+$/, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "-")
+      .substring(0, 50);
+    const filename = `${category}/${Date.now()}-${sanitizedName}.${ext}`;
 
-    // Get presigned upload URL
-    const { uploadUrl, fileKey, publicUrl } = await getUploadUrl(
-      category as FileCategory,
-      fileName,
-      contentType
-    );
+    // Upload to Vercel Blob
+    const blob = await put(filename, file, {
+      access: "public",
+      addRandomSuffix: false,
+    });
 
     return NextResponse.json({
-      uploadUrl,
-      fileKey,
-      publicUrl,
+      success: true,
+      url: blob.url,
+      filename: blob.pathname,
     });
   } catch (error) {
-    console.error("Upload URL generation error:", error);
+    console.error("Upload error:", error);
     return NextResponse.json(
-      { error: "Failed to generate upload URL" },
+      { error: "Failed to upload file" },
       { status: 500 }
     );
   }
