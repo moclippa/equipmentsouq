@@ -11,14 +11,14 @@ interface Equipment {
   id: string;
   titleEn: string;
   titleAr?: string | null;
-  make: string;
-  model: string;
+  make: string | null;
+  model: string | null;
   status: "RENTED" | "SOLD";
   statusChangedAt: string | null;
   updatedAt: string;
   category: { nameEn: string; nameAr: string; slug: string };
   images: Array<{ url: string }>;
-  locationCity: string;
+  locationCity: string | null;
 }
 
 interface RecentTransactionsProps {

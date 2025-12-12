@@ -3,6 +3,13 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
+import {
+  getOrSetCached,
+  CACHE_TTL,
+  CACHE_KEYS,
+  CachedStats,
+  CachedFeaturedEquipment,
+} from "@/lib/cache";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,50 +34,114 @@ import {
   Star,
 } from "lucide-react";
 
-async function getStats() {
-  const [equipmentCount, ownerCount, leadCount] = await Promise.all([
-    prisma.equipment.count({ where: { status: "ACTIVE" } }),
-    prisma.user.count({ where: { role: "OWNER" } }),
-    prisma.lead.count(),
-  ]);
+async function getStats(): Promise<CachedStats> {
+  return getOrSetCached<CachedStats>(
+    CACHE_KEYS.STATS,
+    CACHE_TTL.STATS,
+    async () => {
+      const [equipmentCount, ownerCount, leadCount] = await Promise.all([
+        prisma.equipment.count({ where: { status: "ACTIVE" } }),
+        prisma.user.count({ where: { role: "OWNER" } }),
+        prisma.lead.count(),
+      ]);
 
-  return {
-    equipment: equipmentCount || 0,
-    owners: ownerCount || 0,
-    leads: leadCount || 0,
-  };
+      return {
+        equipment: equipmentCount || 0,
+        owners: ownerCount || 0,
+        leads: leadCount || 0,
+      };
+    }
+  );
 }
 
-async function getFeaturedEquipment() {
-  return prisma.equipment.findMany({
-    where: { status: "ACTIVE" },
-    take: 4,
-    orderBy: { viewCount: "desc" },
-    include: {
-      category: { select: { nameEn: true } },
-      images: { where: { isPrimary: true }, take: 1 },
-    },
-  });
+async function getFeaturedEquipment(): Promise<CachedFeaturedEquipment[]> {
+  return getOrSetCached<CachedFeaturedEquipment[]>(
+    CACHE_KEYS.FEATURED_EQUIPMENT,
+    CACHE_TTL.FEATURED_EQUIPMENT,
+    async () => {
+      const equipment = await prisma.equipment.findMany({
+        where: { status: "ACTIVE" },
+        take: 4,
+        orderBy: { viewCount: "desc" },
+        include: {
+          category: { select: { nameEn: true } },
+          images: { where: { isPrimary: true }, take: 1 },
+        },
+      });
+
+      // Transform to cached format (serialize Decimal fields)
+      return equipment.map((eq) => ({
+        id: eq.id,
+        titleEn: eq.titleEn,
+        titleAr: eq.titleAr,
+        make: eq.make,
+        model: eq.model,
+        year: eq.year,
+        viewCount: eq.viewCount,
+        rentalPrice: eq.rentalPrice ? Number(eq.rentalPrice) : null,
+        rentalPriceUnit: eq.rentalPriceUnit,
+        currency: eq.currency,
+        locationCity: eq.locationCity,
+        category: eq.category,
+        images: eq.images,
+      }));
+    }
+  );
 }
 
-async function getRecentTransactions() {
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+interface CachedRecentTransaction {
+  id: string;
+  titleEn: string;
+  titleAr: string | null;
+  make: string | null;
+  model: string | null;
+  status: string;
+  statusChangedAt: string | null;
+  updatedAt: string;
+  locationCity: string | null;
+  category: { nameEn: string; nameAr: string; slug: string };
+  images: { url: string }[];
+}
 
-  return prisma.equipment.findMany({
-    where: {
-      status: { in: ["RENTED", "SOLD"] },
-      OR: [
-        { statusChangedAt: { gte: thirtyDaysAgo } },
-        { statusChangedAt: null, updatedAt: { gte: thirtyDaysAgo } },
-      ],
-    },
-    orderBy: [{ statusChangedAt: "desc" }, { updatedAt: "desc" }],
-    take: 8,
-    include: {
-      category: { select: { nameEn: true, nameAr: true, slug: true } },
-      images: { where: { isPrimary: true }, take: 1 },
-    },
-  });
+async function getRecentTransactions(): Promise<CachedRecentTransaction[]> {
+  return getOrSetCached<CachedRecentTransaction[]>(
+    CACHE_KEYS.RECENT_TRANSACTIONS,
+    CACHE_TTL.RECENT_TRANSACTIONS,
+    async () => {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+      const transactions = await prisma.equipment.findMany({
+        where: {
+          status: { in: ["RENTED", "SOLD"] },
+          OR: [
+            { statusChangedAt: { gte: thirtyDaysAgo } },
+            { statusChangedAt: null, updatedAt: { gte: thirtyDaysAgo } },
+          ],
+        },
+        orderBy: [{ statusChangedAt: "desc" }, { updatedAt: "desc" }],
+        take: 8,
+        include: {
+          category: { select: { nameEn: true, nameAr: true, slug: true } },
+          images: { where: { isPrimary: true }, take: 1 },
+        },
+      });
+
+      // Transform to cached format (serialize dates)
+      return transactions.map((eq) => ({
+        id: eq.id,
+        titleEn: eq.titleEn,
+        titleAr: eq.titleAr,
+        make: eq.make,
+        model: eq.model,
+        status: eq.status,
+        statusChangedAt: eq.statusChangedAt?.toISOString() || null,
+        updatedAt: eq.updatedAt.toISOString(),
+        locationCity: eq.locationCity,
+        category: eq.category,
+        images: eq.images,
+      }));
+    }
+  );
 }
 
 export default async function Home() {
@@ -306,8 +377,8 @@ export default async function Home() {
               make: eq.make,
               model: eq.model,
               status: eq.status as "RENTED" | "SOLD",
-              statusChangedAt: eq.statusChangedAt?.toISOString() || null,
-              updatedAt: eq.updatedAt.toISOString(),
+              statusChangedAt: eq.statusChangedAt,
+              updatedAt: eq.updatedAt,
               category: eq.category,
               images: eq.images,
               locationCity: eq.locationCity,

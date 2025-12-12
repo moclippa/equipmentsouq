@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  getOrSetCached,
+  invalidateEquipmentCache,
+  invalidateAllEquipmentCaches,
+  CACHE_TTL,
+  CACHE_KEYS,
+} from "@/lib/cache";
 
 /**
  * GET /api/equipment/[id]
  * Get equipment details by ID
+ *
+ * Uses Redis caching (10 min TTL) for faster response times.
+ * Cache is invalidated on equipment update/delete.
  */
 export async function GET(
   request: NextRequest,
@@ -13,41 +23,65 @@ export async function GET(
   try {
     const { id } = await params;
 
-    const equipment = await prisma.equipment.findUnique({
-      where: { id },
-      include: {
-        category: {
-          select: {
-            id: true,
-            nameEn: true,
-            nameAr: true,
-            slug: true,
-            parentId: true,
-          },
-        },
-        owner: {
-          select: {
-            id: true,
-            fullName: true,
-            avatarUrl: true,
-            createdAt: true,
-            businessProfile: {
+    // Try to get from cache first, fetch from DB if miss
+    const equipment = await getOrSetCached(
+      `${CACHE_KEYS.EQUIPMENT}:${id}`,
+      CACHE_TTL.EQUIPMENT_DETAIL,
+      async () => {
+        const eq = await prisma.equipment.findUnique({
+          where: { id },
+          include: {
+            category: {
               select: {
-                companyNameEn: true,
-                companyNameAr: true,
-                crVerificationStatus: true,
+                id: true,
+                nameEn: true,
+                nameAr: true,
+                slug: true,
+                parentId: true,
               },
             },
+            owner: {
+              select: {
+                id: true,
+                fullName: true,
+                avatarUrl: true,
+                createdAt: true,
+                businessProfile: {
+                  select: {
+                    companyNameEn: true,
+                    companyNameAr: true,
+                    crVerificationStatus: true,
+                  },
+                },
+              },
+            },
+            images: {
+              orderBy: { sortOrder: "asc" },
+            },
+            _count: {
+              select: { leads: true },
+            },
           },
-        },
-        images: {
-          orderBy: { sortOrder: "asc" },
-        },
-        _count: {
-          select: { leads: true },
-        },
-      },
-    });
+        });
+
+        if (!eq) return null;
+
+        // Serialize dates and Decimal fields for JSON/Redis storage
+        return {
+          ...eq,
+          rentalPrice: eq.rentalPrice ? Number(eq.rentalPrice) : null,
+          salePrice: eq.salePrice ? Number(eq.salePrice) : null,
+          createdAt: eq.createdAt.toISOString(),
+          updatedAt: eq.updatedAt.toISOString(),
+          publishedAt: eq.publishedAt?.toISOString() || null,
+          statusChangedAt: eq.statusChangedAt?.toISOString() || null,
+          owner: {
+            ...eq.owner,
+            createdAt: eq.owner.createdAt.toISOString(),
+          },
+        };
+      }
+    );
 
     if (!equipment) {
       return NextResponse.json(
@@ -173,6 +207,9 @@ export async function PATCH(
       return updated;
     });
 
+    // Invalidate caches (fire and forget)
+    invalidateAllEquipmentCaches(id).catch(() => {});
+
     return NextResponse.json({ equipment });
   } catch (error) {
     console.error("Update equipment error:", error);
@@ -224,6 +261,9 @@ export async function DELETE(
       where: { id },
       data: { status: "ARCHIVED", statusChangedAt: new Date() },
     });
+
+    // Invalidate caches (fire and forget)
+    invalidateAllEquipmentCaches(id).catch(() => {});
 
     return NextResponse.json({ success: true });
   } catch (error) {

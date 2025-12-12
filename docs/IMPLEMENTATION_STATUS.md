@@ -1,6 +1,6 @@
 # EquipmentSouq Implementation Status
 
-Last Updated: 2025-12-12 (Sprint 19: Comprehensive Performance Optimization)
+Last Updated: 2025-12-12 (Sprint 20: Redis Integration)
 
 ## Business Model Pivot
 
@@ -42,6 +42,63 @@ Last Updated: 2025-12-12 (Sprint 19: Comprehensive Performance Optimization)
 | 17 | CDN & Edge Optimization | **Completed** |
 | 18 | Frontend Performance Optimizations | **Completed** |
 | 19 | Comprehensive Performance Optimization | **Completed** |
+| 20 | Redis Integration | **Completed** |
+
+---
+
+## Sprint 20: Redis Integration - COMPLETED
+
+### Overview
+Connected Upstash Redis and activated caching/rate-limiting across the application. Previously, the cache infrastructure existed but wasn't connected to a Redis instance.
+
+### Features Implemented
+
+#### Upstash Redis Setup
+- [x] Created Upstash Redis database (Middle East region for low latency)
+- [x] Added credentials to `.env` (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`)
+- [x] Verified connection (PING/PONG, set/get operations)
+- [x] Enabled eviction policy for cache use case
+
+#### Homepage Caching (Active)
+- [x] Stats cached (5 min TTL) - equipment count, owner count, lead count
+- [x] Featured equipment cached (1 hour TTL) - top 4 by view count
+- [x] Recent transactions cached (15 min TTL) - sold/rented in last 30 days
+
+#### Equipment Detail Caching (Active)
+- [x] Individual equipment pages cached (10 min TTL)
+- [x] Serialized Decimal and Date fields for Redis JSON storage
+- [x] View count still increments atomically (fire-and-forget)
+
+#### Cache Invalidation (Active)
+- [x] Equipment CREATE invalidates: stats, featured, recent transactions
+- [x] Equipment UPDATE invalidates: equipment detail, stats, featured, recent transactions
+- [x] Equipment DELETE invalidates: equipment detail, stats, featured, recent transactions
+
+#### Distributed Rate Limiting (Active)
+- [x] Middleware rate limiting now uses Redis (was in-memory fallback)
+- [x] Works across all Vercel Edge instances
+- [x] Route-specific limits enforced consistently
+
+### Key Files Modified
+- `src/app/page.tsx` - Homepage data fetching now uses `getOrSetCached()`
+- `src/app/api/equipment/[id]/route.ts` - Equipment detail caching + invalidation
+- `src/app/api/equipment/route.ts` - Cache invalidation on create
+- `src/components/features/homepage/recent-transactions.tsx` - Updated types for cached data
+
+### Cache Strategy Summary
+
+| Data | Cache Key | TTL | Invalidation |
+|------|-----------|-----|--------------|
+| Homepage Stats | `stats` | 5 min | Equipment create/update/delete |
+| Featured Equipment | `featured-equipment` | 1 hour | Equipment create/update/delete |
+| Recent Transactions | `recent-transactions` | 15 min | Equipment create/update/delete |
+| Equipment Detail | `equipment:{id}` | 10 min | Equipment update/delete |
+
+### Environment Variables Required
+```env
+UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
+UPSTASH_REDIS_REST_TOKEN=xxx
+```
 
 ---
 

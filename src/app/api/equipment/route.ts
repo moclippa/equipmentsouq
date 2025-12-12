@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { fullTextSearchEquipment, buildEquipmentSearchWhere } from "@/lib/db/search";
+import { invalidateAllEquipmentCaches } from "@/lib/cache";
 
 const createEquipmentSchema = z.object({
   // Basic info
@@ -157,6 +158,9 @@ export async function POST(request: NextRequest) {
 
       return eq;
     });
+
+    // Invalidate caches (new equipment affects stats, featured, etc.)
+    invalidateAllEquipmentCaches().catch(() => {});
 
     return NextResponse.json({
       success: true,

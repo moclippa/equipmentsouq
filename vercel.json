@@ -38,7 +38,7 @@
     },
     {
       "path": "/api/cron/expire-booking-requests",
-      "schedule": "0 * * * *"
+      "schedule": "0 3 * * *"
     }
   ]
 }
