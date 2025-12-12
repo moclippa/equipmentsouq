@@ -1,6 +1,6 @@
 # EquipmentSouq Implementation Status
 
-Last Updated: 2025-12-12 (Sprint 20: Redis Integration)
+Last Updated: 2025-12-12 (Sprint 22: Trust & Credibility System)
 
 ## Business Model Pivot
 
@@ -43,6 +43,213 @@ Last Updated: 2025-12-12 (Sprint 20: Redis Integration)
 | 18 | Frontend Performance Optimizations | **Completed** |
 | 19 | Comprehensive Performance Optimization | **Completed** |
 | 20 | Redis Integration | **Completed** |
+| 21 | Technical Debt Remediation | **Completed** |
+| 22 | Trust & Credibility System | **Completed** |
+
+---
+
+## Sprint 21: Technical Debt Remediation - COMPLETED
+
+### Overview
+Comprehensive technical debt remediation in three phases:
+1. **Services Layer** - ServiceResult pattern, centralized error handling, SMS notification TODOs
+2. **Testing Infrastructure** - Vitest setup, 85 unit tests
+3. **Component Refactoring** - Large page extraction, shared types, error boundaries
+
+### Technical Debt Score
+- **Before**: 385/1000 (Low-Medium)
+- **After Phase 1**: ~300/1000 (Low) - Services layer, notifications complete
+- **After Phase 2+3**: ~250/1000 (Low) - Testing infrastructure, component extraction, error handling
+
+### Features Implemented
+
+#### Services Layer Foundation
+- [x] Created `src/services/base.ts` - ServiceResult pattern, error codes, HTTP status mapping
+- [x] Created `src/lib/api-response.ts` - Centralized API response utilities
+- [x] Created `src/services/equipment.service.ts` - Equipment business logic
+- [x] Created `src/services/lead.service.ts` - Lead management business logic
+
+#### SMS Notifications (All TODOs Resolved)
+- [x] Booking request creation → Owner SMS notification
+- [x] Booking status update (confirm/decline) → Renter SMS notification
+- [x] Business verification approved → Owner SMS notification
+- [x] Business verification rejected → Owner SMS notification with reason
+
+#### Dependency Updates
+- [x] Updated @tailwindcss/postcss 4.1.17 → 4.1.18
+- [x] Updated @types/pg 8.15.6 → 8.16.0
+- [x] Updated lucide-react 0.556.0 → 0.560.0
+- [x] Updated tailwindcss 4.1.17 → 4.1.18
+
+### Key Files Created/Modified
+
+**New Files:**
+- `src/services/base.ts` - ServiceResult pattern, ErrorCodes, validation helpers
+- `src/services/equipment.service.ts` - Equipment CRUD operations
+- `src/services/lead.service.ts` - Lead creation and management
+- `src/lib/api-response.ts` - Unified API response utilities
+
+**Modified Files:**
+- `src/lib/notifications/sms.ts` - Added 4 new notification functions
+- `src/app/api/booking-requests/route.ts` - Added SMS notification
+- `src/app/api/booking-requests/[id]/route.ts` - Added SMS notification
+- `src/app/api/admin/verifications/[id]/route.ts` - Added SMS notifications
+
+### Service Layer Pattern
+
+```typescript
+// Services return typed results, not HTTP responses
+const result = await equipmentService.create(data, userId);
+
+// API routes convert results to HTTP responses
+if (!result.success) {
+  return errorResponse(result.error.code, result.error.message);
+}
+return successResponse(result.data, 201);
+```
+
+### Error Codes Added
+- `UNAUTHORIZED`, `FORBIDDEN`, `PHONE_NOT_VERIFIED`, `SESSION_EXPIRED`
+- `VALIDATION_ERROR`, `INVALID_INPUT`, `MISSING_REQUIRED_FIELD`
+- `NOT_FOUND`, `ALREADY_EXISTS`, `CONFLICT`
+- `PRICE_REQUIRED`, `EQUIPMENT_NOT_AVAILABLE`, `BOOKING_CONFLICT`
+- `RATE_LIMITED`, `SMS_FAILED`, `AI_SERVICE_ERROR`, `STORAGE_ERROR`
+- `INTERNAL_ERROR`, `DATABASE_ERROR`, `EXTERNAL_SERVICE_ERROR`
+
+#### Testing Infrastructure (Phase 2)
+- [x] Installed Vitest + Testing Library + jsdom
+- [x] Configured Vitest for Next.js with path aliases
+- [x] Created Prisma and Cache mocks for unit testing
+- [x] Wrote 85 unit tests covering:
+  - ServiceResult pattern (29 tests)
+  - API response utilities (24 tests)
+  - EquipmentService (16 tests)
+  - LeadService (16 tests)
+
+**Test Commands:**
+```bash
+npm test           # Watch mode
+npm run test:run   # Single run
+npm run test:coverage  # With coverage report
+npm run test:ui    # Vitest UI
+```
+
+**Test Structure:**
+```
+src/__tests__/
+├── setup.ts              # Global setup, Next.js mocks
+├── mocks/
+│   ├── prisma.ts         # Prisma client mock
+│   └── cache.ts          # Redis/cache mock
+├── services/
+│   ├── base.test.ts      # ServiceResult, ErrorCodes
+│   ├── equipment.service.test.ts
+│   └── lead.service.test.ts
+└── lib/
+    └── api-response.test.ts
+```
+
+#### Component Refactoring (Phase 3)
+- [x] Extracted equipment detail page components (766→272 lines, 65% reduction)
+- [x] Created shared type definitions in `src/types/equipment.ts`
+- [x] Added React Error Boundary component
+- [x] Added Next.js App Router error page (`error.tsx`)
+- [x] Added 404 Not Found page (`not-found.tsx`)
+
+**Extracted Components:**
+```
+src/components/features/equipment/
+├── equipment-image-gallery.tsx    # Image display with thumbnails
+├── equipment-quick-stats.tsx      # Year, hours, location, condition grid
+├── equipment-pricing-card.tsx     # Pricing display + contact options
+├── owner-management-card.tsx      # Owner's listing management UI
+└── owner-info-card.tsx            # Seller info for non-owners
+```
+
+**Shared Types:**
+```typescript
+// src/types/equipment.ts
+export interface Equipment { ... }
+export type ListingType = "FOR_RENT" | "FOR_SALE" | "BOTH";
+export type EquipmentStatus = "DRAFT" | "ACTIVE" | ...;
+export const CONDITION_LABELS: Record<string, {...}>;
+export function formatPrice(amount, currency): string;
+export function getWhatsAppLink(phone, title): string;
+```
+
+#### API Routes Migration (Phase 4)
+- [x] Migrated `/api/equipment/[id]` (GET/PATCH/DELETE) - 277→76 lines (73% reduction)
+- [x] Migrated `/api/equipment` POST handler - 120→30 lines (75% reduction)
+- [x] Migrated `/api/leads` (POST/GET) - 213→84 lines (60% reduction)
+
+**Pattern**: Routes now follow "thin controller" approach:
+```typescript
+// Auth check → Service call → Response
+const authError = requireAuth(session);
+if (authError) return authError;
+
+const result = await equipmentService.getById(id);
+return serviceResultToResponse(result);
+```
+
+#### Settings Page Refactoring (Phase 5)
+- [x] Extracted `PhoneVerificationCard` - OTP send/verify flow with forwardRef
+- [x] Extracted `ProfileSettingsCard` - Account info with view/edit modes
+- [x] Extracted `PasswordChangeCard` - Password change form
+- [x] Extracted `BusinessProfileCard` - Link to business profile
+- [x] Settings page reduced from 667→44 lines (93% reduction)
+
+**Extracted Components:**
+```
+src/components/features/settings/
+├── phone-verification-card.tsx   # OTP verification flow
+├── profile-settings-card.tsx     # Account info with edit mode
+├── password-change-card.tsx      # Password change form
+├── business-profile-card.tsx     # Business profile link
+└── index.ts                      # Barrel exports
+```
+
+#### Admin Dashboard Refactoring (Phase 6)
+- [x] Extracted `StatsCard` - Reusable metric card with change indicator
+- [x] Extracted `CountryDistributionCard` - Geographic breakdown visualization
+- [x] Extracted `StatusDistributionCard` - Generic status distribution (equipment/leads)
+- [x] Extracted `QuickActionsCard` - Admin quick actions with pending counts
+- [x] Extracted `RecentUsersCard` - Latest user registrations
+- [x] Extracted `TopListingsCard` - Top performing equipment by leads
+- [x] Extracted `RecentLeadsCard` - Latest contact requests
+- [x] Admin page reduced from 554→257 lines (54% reduction)
+
+**Extracted Components:**
+```
+src/components/features/admin/
+├── stats-card.tsx               # Reusable metric card
+├── country-distribution-card.tsx # SA/BH breakdown
+├── status-distribution-card.tsx  # Generic status distribution
+├── quick-actions-card.tsx        # Admin quick links
+├── recent-users-card.tsx         # Latest registrations
+├── top-listings-card.tsx         # Top equipment by leads
+├── recent-leads-card.tsx         # Recent contact requests
+└── index.ts                      # Barrel exports
+```
+
+### Technical Debt Summary
+
+**Sprint 21 Results:**
+- Equipment detail page: 766→272 lines (65% reduction)
+- Settings page: 667→44 lines (93% reduction)
+- Admin page: 554→257 lines (54% reduction)
+- API routes: 610→190 lines (69% reduction)
+- **Total lines refactored: ~2,600 lines → ~760 lines (~70% reduction)**
+
+**Remaining Tech Debt (Future Sprints):**
+
+**Medium Priority:**
+- [ ] Increase test coverage to 60% (critical paths)
+- [ ] Add integration tests for API routes
+- [ ] Extract equipment list page components
+
+**Low Priority:**
+- [ ] Add E2E tests with Playwright
 
 ---
 
@@ -1143,6 +1350,128 @@ All core features are complete:
 - Search & discovery with filters
 - Lead management (contact owner flow)
 - Admin panel with full oversight
+
+---
+
+## Sprint 22: Trust & Credibility System - COMPLETED
+
+### Overview
+Comprehensive trust and credibility system to build confidence between renters and equipment owners. Implements lead-gated contact (phone/WhatsApp revealed after lead submission) to track response metrics.
+
+### Phase 1: Database Schema (Completed)
+- [x] Added `ReviewRating` enum (EXCELLENT, GOOD, FAIR, POOR, VERY_POOR)
+- [x] Added `ReviewStatus` enum (PENDING, SUBMITTED, RESPONDED, FLAGGED)
+- [x] Added `TrustBadge` enum (VERIFIED_BUSINESS, VERIFIED_IDENTITY, FAST_RESPONDER, RELIABLE, TOP_RATED, FEATURED_SELLER)
+- [x] Created `OwnerReview` model - Lead-linked reviews for authenticity
+- [x] Created `OwnerTrustMetrics` model - Pre-computed trust scores and badges
+- [x] Created `ListingQualityScore` model - Equipment quality scoring
+- [x] Created `ReviewRequest` model - 7-day delayed review requests
+- [x] Added `ownerRespondedAt` to Lead model for response tracking
+
+### Phase 2: Core Services (Completed)
+- [x] `src/services/trust/quality-scoring.service.ts` - Photo, description, specification scoring
+- [x] `src/services/trust/trust-scoring.service.ts` - Owner trust score calculation, badge assignment
+- [x] `src/services/trust/review.service.ts` - Review submission, owner responses, moderation
+- [x] `src/services/trust/trust-events.service.ts` - Event-driven trust metric updates
+- [x] `src/types/trust.ts` - Shared type definitions, constants, utilities
+
+### Phase 3: API Endpoints (Completed)
+- [x] `GET /api/reviews` - List reviews (filter by owner/reviewer)
+- [x] `POST /api/reviews` - Submit a review
+- [x] `GET /api/reviews/[id]` - Get review details
+- [x] `PATCH /api/reviews/[id]` - Owner respond or flag review
+- [x] `GET /api/reviews/requests` - Get pending review requests for user
+- [x] `GET /api/trust/[ownerId]` - Get owner trust metrics
+- [x] `GET /api/equipment/[id]/quality` - Get listing quality score
+- [x] `POST /api/equipment/[id]/quality` - Recalculate quality score
+- [x] `POST /api/cron/process-review-requests` - Cron job for review request processing
+
+### Phase 4: Trust UI Components (Completed)
+- [x] `TrustBadge` - Individual badge display with icon, color, and tooltip
+- [x] `TrustBadgeStack` - Multiple badges in a row with overflow handling
+- [x] `StarRatingDisplay` - Read-only star rating with half-star support
+- [x] `StarRatingInput` - Interactive star rating input
+- [x] `RatingSummary` - Rating with review count
+- [x] `OwnerTrustCard` - Full trust metrics card for equipment detail pages
+- [x] `OwnerTrustCompact` - Compact trust indicators for search cards
+- [x] `ReviewCard` - Single review display with owner response
+- [x] `ReviewList` - Paginated reviews with rating distribution
+- [x] `ReviewSubmitForm` - Review submission with star rating
+- [x] `OwnerResponseForm` - Owner response to reviews
+
+### Phase 5: Page Integration (Completed)
+- [x] Equipment detail page fetches trust metrics and reviews
+- [x] Replaced `OwnerInfoCard` with `OwnerTrustCard` showing badges, score, response metrics
+- [x] Added reviews section at bottom of equipment detail page
+- [x] Paginated review loading with "Load More" functionality
+- [x] Contact gating already implemented (WhatsApp/Call requires phone verification)
+
+### Event Integration (Completed)
+- [x] Lead service triggers trust events on creation
+- [x] Lead service tracks owner response timestamps
+- [x] Equipment service triggers quality recalculation on create/update
+
+### Trust Scoring Algorithm
+```
+Trust Score = (Response × 0.4) + (Reviews × 0.3) + (Listing Quality × 0.2) + (Verification × 0.1)
+
+Response Score: Based on response rate + response time bonus/penalty
+Review Score: Average rating (1-5 → 0-100), weighted by review count
+Listing Quality: Photo score (40%) + Description (35%) + Specifications (25%)
+Verification: +10 points for verified business or identity
+```
+
+### Badge Thresholds
+- **FAST_RESPONDER**: Average response time ≤ 2 hours
+- **RELIABLE**: Response rate ≥ 95%
+- **TOP_RATED**: Average ≥ 4.5 stars AND 10+ reviews
+- **VERIFIED_BUSINESS**: CR/VAT documents verified
+- **VERIFIED_IDENTITY**: Phone verified
+
+### Files Created
+```
+src/types/trust.ts                                    # Shared types and constants
+src/services/trust/
+├── index.ts                                          # Service exports
+├── quality-scoring.service.ts                        # Listing quality calculation
+├── trust-scoring.service.ts                          # Owner trust score + badges
+├── review.service.ts                                 # Review management
+└── trust-events.service.ts                           # Event handlers
+src/app/api/reviews/
+├── route.ts                                          # GET/POST /api/reviews
+├── [id]/route.ts                                     # GET/PATCH /api/reviews/[id]
+└── requests/route.ts                                 # GET /api/reviews/requests
+src/app/api/trust/[ownerId]/route.ts                  # GET /api/trust/[ownerId]
+src/app/api/equipment/[id]/quality/route.ts           # GET/POST quality score
+src/app/api/cron/process-review-requests/route.ts     # Cron job
+
+src/components/features/trust/
+├── index.ts                                          # Component exports
+├── trust-badge.tsx                                   # TrustBadge, TrustBadgeStack
+├── star-rating.tsx                                   # StarRatingDisplay, StarRatingInput, RatingSummary
+├── owner-trust-card.tsx                              # OwnerTrustCard, OwnerTrustCompact
+├── review-card.tsx                                   # ReviewCard, ReviewCardSkeleton
+├── review-list.tsx                                   # ReviewList, ReviewListSkeleton
+└── review-submit-form.tsx                            # ReviewSubmitForm, OwnerResponseForm
+```
+
+### Files Modified
+- `src/app/(search)/equipment/[id]/page.tsx` - Added trust metrics and reviews integration
+- `src/services/lead.service.ts` - Added trust event triggers
+- `src/services/equipment.service.ts` - Added trust event triggers
+
+### Phase 6: Search Card Trust Badges (Completed)
+- [x] Updated equipment search API to include owner trust metrics
+- [x] Extended EquipmentCardData interface with trustMetrics field
+- [x] Added OwnerTrustCompact to grid and list view cards
+- [x] Shows badges, rating, and response rate on search results
+
+### Future Enhancements
+- [ ] Owner dashboard review management page
+- [ ] Review request email/SMS notifications (cron job)
+- [ ] Admin moderation panel for flagged reviews
+
+---
 
 ## Post-Launch Features (Future)
 - Featured listings monetization

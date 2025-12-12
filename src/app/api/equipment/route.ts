@@ -3,7 +3,13 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { fullTextSearchEquipment, buildEquipmentSearchWhere } from "@/lib/db/search";
-import { invalidateAllEquipmentCaches } from "@/lib/cache";
+import {
+  createdResponse,
+  validationErrorResponse,
+  requireVerifiedPhone,
+  serviceResultToResponse,
+} from "@/lib/api-response";
+import { equipmentService, CreateEquipmentInput } from "@/services/equipment.service";
 
 const createEquipmentSchema = z.object({
   // Basic info
@@ -57,123 +63,33 @@ const createEquipmentSchema = z.object({
  * Requires: authenticated user with verified phone
  */
 export async function POST(request: NextRequest) {
-  try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const session = await auth();
+  const phoneError = requireVerifiedPhone(session);
+  if (phoneError) return phoneError;
 
-    // Check phone verification
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { phoneVerified: true, phone: true },
+  const body = await request.json();
+  const validation = createEquipmentSchema.safeParse(body);
+
+  if (!validation.success) {
+    return validationErrorResponse("Invalid request data", {
+      issues: validation.error.issues,
     });
-
-    if (!user?.phone || !user?.phoneVerified) {
-      return NextResponse.json(
-        {
-          error: "Phone verification required",
-          code: "PHONE_NOT_VERIFIED",
-          message: "Please verify your phone number before posting equipment"
-        },
-        { status: 403 }
-      );
-    }
-
-    const body = await request.json();
-    const validation = createEquipmentSchema.safeParse(body);
-
-    if (!validation.success) {
-      return NextResponse.json(
-        { error: "Invalid request", details: validation.error.issues },
-        { status: 400 }
-      );
-    }
-
-    const data = validation.data;
-
-    // Validate pricing based on listing type
-    if (data.listingType === "FOR_RENT" || data.listingType === "BOTH") {
-      if (!data.priceOnRequest && !data.rentalPrice) {
-        return NextResponse.json(
-          { error: "Rental price is required for rental listings" },
-          { status: 400 }
-        );
-      }
-    }
-    if (data.listingType === "FOR_SALE" || data.listingType === "BOTH") {
-      if (!data.priceOnRequest && !data.salePrice) {
-        return NextResponse.json(
-          { error: "Sale price is required for sale listings" },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Create equipment with images in a transaction
-    const equipment = await prisma.$transaction(async (tx) => {
-      // Create the equipment
-      const eq = await tx.equipment.create({
-        data: {
-          ownerId: session.user.id,
-          categoryId: data.categoryId,
-          titleEn: data.titleEn,
-          titleAr: data.titleAr,
-          descriptionEn: data.descriptionEn,
-          descriptionAr: data.descriptionAr,
-          make: data.make,
-          model: data.model,
-          year: data.year,
-          condition: data.condition,
-          hoursUsed: data.hoursUsed,
-          specifications: data.specifications || {},
-          listingType: data.listingType,
-          rentalPrice: data.rentalPrice,
-          rentalPriceUnit: data.rentalPriceUnit || "day",
-          salePrice: data.salePrice,
-          priceOnRequest: data.priceOnRequest,
-          currency: data.currency,
-          locationCity: data.locationCity,
-          locationRegion: data.locationRegion,
-          locationCountry: data.locationCountry,
-          contactPhone: data.contactPhone,
-          contactWhatsApp: data.contactWhatsApp,
-          aiClassified: data.aiClassified,
-          status: "ACTIVE", // Go live immediately for classifieds MVP
-          publishedAt: new Date(),
-        },
-      });
-
-      // Create images
-      if (data.images.length > 0) {
-        await tx.equipmentImage.createMany({
-          data: data.images.map((img, index) => ({
-            equipmentId: eq.id,
-            url: img.url,
-            isPrimary: img.isPrimary || index === 0,
-            sortOrder: img.sortOrder ?? index,
-          })),
-        });
-      }
-
-      return eq;
-    });
-
-    // Invalidate caches (new equipment affects stats, featured, etc.)
-    invalidateAllEquipmentCaches().catch(() => {});
-
-    return NextResponse.json({
-      success: true,
-      message: "Equipment listing created successfully",
-      equipmentId: equipment.id,
-    });
-  } catch (error) {
-    console.error("Create equipment error:", error);
-    return NextResponse.json(
-      { error: "Failed to create equipment listing" },
-      { status: 500 }
-    );
   }
+
+  const result = await equipmentService.create(
+    validation.data as CreateEquipmentInput,
+    session!.user!.id!
+  );
+
+  if (!result.success) {
+    return serviceResultToResponse(result);
+  }
+
+  return createdResponse({
+    success: true,
+    message: "Equipment listing created successfully",
+    equipmentId: result.data!.equipmentId,
+  });
 }
 
 /**
@@ -211,7 +127,19 @@ export async function GET(request: NextRequest) {
             select: { id: true, nameEn: true, nameAr: true, slug: true },
           },
           owner: {
-            select: { id: true, fullName: true },
+            select: {
+              id: true,
+              fullName: true,
+              trustMetrics: {
+                select: {
+                  badges: true,
+                  trustScore: true,
+                  responseRate: true,
+                  totalReviews: true,
+                  averageRating: true,
+                },
+              },
+            },
           },
           images: {
             where: { isPrimary: true },
@@ -376,7 +304,19 @@ export async function GET(request: NextRequest) {
           select: { id: true, nameEn: true, nameAr: true, slug: true },
         },
         owner: {
-          select: { id: true, fullName: true },
+          select: {
+            id: true,
+            fullName: true,
+            trustMetrics: {
+              select: {
+                badges: true,
+                trustScore: true,
+                responseRate: true,
+                totalReviews: true,
+                averageRating: true,
+              },
+            },
+          },
         },
         images: {
           where: { isPrimary: true },

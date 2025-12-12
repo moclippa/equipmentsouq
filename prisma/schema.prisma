@@ -76,6 +76,31 @@ enum BookingRequestStatus {
   CANCELLED     // Either party cancelled
 }
 
+// Trust & Review System
+enum ReviewRating {
+  EXCELLENT     // 5 stars
+  GOOD          // 4 stars
+  FAIR          // 3 stars
+  POOR          // 2 stars
+  VERY_POOR     // 1 star
+}
+
+enum ReviewStatus {
+  PENDING       // Review request sent, awaiting submission
+  SUBMITTED     // Renter submitted review
+  RESPONDED     // Owner responded to review
+  FLAGGED       // Admin flagged for moderation
+}
+
+enum TrustBadge {
+  VERIFIED_BUSINESS   // Has verified CR/VAT documents
+  VERIFIED_IDENTITY   // Has verified phone + email
+  FAST_RESPONDER      // Avg response time < 2 hours
+  RELIABLE            // 95%+ response rate
+  TOP_RATED           // 4.5+ stars with 10+ reviews
+  FEATURED_SELLER     // Paid premium badge (future monetization)
+}
+
 // ============================================================================
 // USER & AUTHENTICATION
 // ============================================================================
@@ -124,6 +149,11 @@ model User {
 
   // Common
   notifications       Notification[]
+
+  // Trust & Reviews
+  reviewsReceived     OwnerReview[]       @relation("OwnerReviews")
+  reviewsGiven        OwnerReview[]       @relation("ReviewerReviews")
+  trustMetrics        OwnerTrustMetrics?
 
   @@index([phone])
   @@index([email])
@@ -338,6 +368,7 @@ model Equipment {
   leads               Lead[]
   availabilityBlocks  AvailabilityBlock[]
   bookingRequests     BookingRequest[]
+  qualityScore        ListingQualityScore?
 
   // === INDEXES ===
   // Primary filters
@@ -404,8 +435,13 @@ model Lead {
   status          LeadStatus    @default(NEW)
   ownerViewedAt   DateTime?
   ownerContactedAt DateTime?
+  ownerRespondedAt DateTime?    // When owner first responded (for metrics)
 
   createdAt       DateTime      @default(now())
+
+  // Trust & Reviews
+  review          OwnerReview?
+  reviewRequest   ReviewRequest?
 
   // === INDEXES ===
   @@index([equipmentId])
@@ -489,6 +525,131 @@ model BookingRequest {
   @@index([equipmentId, status])                    // Owner dashboard filter
   @@index([equipmentId, status, startDate, endDate]) // Conflict detection
   @@index([renterId, status, createdAt])            // Renter's request history
+}
+
+// ============================================================================
+// TRUST & REVIEW SYSTEM
+// ============================================================================
+
+// Owner reviews from renters (request-based, 7 days after lead)
+model OwnerReview {
+  id              String        @id @default(cuid())
+
+  // Relations
+  leadId          String        @unique // One review per lead
+  lead            Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  ownerId         String
+  owner           User          @relation("OwnerReviews", fields: [ownerId], references: [id], onDelete: Cascade)
+  reviewerId      String
+  reviewer        User          @relation("ReviewerReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  // Review content
+  rating          ReviewRating
+  title           String?
+  comment         String?       @db.Text
+
+  // Owner response
+  ownerResponse   String?       @db.Text
+  respondedAt     DateTime?
+
+  // Metadata
+  status          ReviewStatus  @default(SUBMITTED)
+  isVerified      Boolean       @default(false) // Only true if lead converted
+  flaggedReason   String?
+
+  // Response metrics captured at review time (immutable)
+  responseTimeHours Int?        // Hours from lead creation to ownerRespondedAt
+  didOwnerRespond   Boolean     @default(false)
+
+  // Timestamps
+  requestedAt     DateTime      // When review was requested (lead + 7 days)
+  submittedAt     DateTime?     // When reviewer submitted
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([ownerId, status, createdAt])
+  @@index([reviewerId, createdAt])
+  @@index([status, isVerified])
+}
+
+// Pre-computed trust metrics for owners (cached in DB + Redis)
+model OwnerTrustMetrics {
+  id                    String      @id @default(cuid())
+  ownerId               String      @unique
+  owner                 User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  // Response metrics (computed from Leads)
+  totalLeads            Int         @default(0)
+  respondedLeads        Int         @default(0)   // Status changed from NEW
+  avgResponseTimeHours  Decimal?    @db.Decimal(10, 2) // Average ownerRespondedAt - createdAt
+  responseRate          Decimal?    @db.Decimal(5, 2)  // respondedLeads / totalLeads * 100
+
+  // Review metrics
+  totalReviews          Int         @default(0)
+  averageRating         Decimal?    @db.Decimal(3, 2)  // 1.00 - 5.00
+  excellentCount        Int         @default(0)
+  goodCount             Int         @default(0)
+  fairCount             Int         @default(0)
+  poorCount             Int         @default(0)
+  veryPoorCount         Int         @default(0)
+
+  // Listing quality (computed from Equipment)
+  totalListings         Int         @default(0)
+  activeListings        Int         @default(0)
+  avgListingQuality     Decimal?    @db.Decimal(5, 2)  // 0-100 score
+
+  // Composite trust score (0-100)
+  trustScore            Decimal     @db.Decimal(5, 2) @default(0)
+
+  // Earned badges
+  badges                TrustBadge[]
+
+  // Last recalculation
+  lastCalculatedAt      DateTime    @default(now())
+
+  @@index([trustScore])
+  @@index([averageRating])
+  @@index([responseRate])
+}
+
+// Quality score for each listing (computed on create/update)
+model ListingQualityScore {
+  id                    String      @id @default(cuid())
+  equipmentId           String      @unique
+  equipment             Equipment   @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  // Component scores (0-100)
+  photoScore            Decimal     @db.Decimal(5, 2) @default(0)   // Based on image count
+  descriptionScore      Decimal     @db.Decimal(5, 2) @default(0)   // Based on length/completeness
+  specificationScore    Decimal     @db.Decimal(5, 2) @default(0)   // Based on specs filled
+
+  // Composite score
+  overallScore          Decimal     @db.Decimal(5, 2) @default(0)   // Weighted average
+
+  // Metadata
+  calculatedAt          DateTime    @default(now())
+
+  @@index([overallScore])
+}
+
+// Review request tracking (ensures 7-day delay + one request per lead)
+model ReviewRequest {
+  id                String    @id @default(cuid())
+  leadId            String    @unique
+  lead              Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  // Sent to
+  reviewerEmail     String?
+  reviewerPhone     String?
+
+  // Status
+  sentAt            DateTime  @default(now())
+  reminderSentAt    DateTime? // Optional reminder after 14 days
+  completedAt       DateTime? // When review submitted
+  expiredAt         DateTime? // Review requests expire after 30 days
+
+  @@index([sentAt])
+  @@index([completedAt])
 }
 
 // ============================================================================

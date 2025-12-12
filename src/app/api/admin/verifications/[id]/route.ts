@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { notifyVerificationApproved, notifyVerificationRejected } from "@/lib/notifications/sms";
 
 const approveSchema = z.object({
   action: z.literal("approve"),
@@ -71,8 +72,11 @@ export async function PATCH(
         },
       });
 
-      // TODO: Send notification to user (email/SMS)
-      // await sendVerificationApprovalNotification(profile.user);
+      // Send SMS notification (fire-and-forget)
+      notifyVerificationApproved({
+        userPhone: profile.user.phone,
+        companyName: profile.companyNameEn,
+      });
 
       return NextResponse.json({
         message: "Business verification approved",
@@ -94,8 +98,12 @@ export async function PATCH(
         },
       });
 
-      // TODO: Send notification to user (email/SMS) with rejection reason
-      // await sendVerificationRejectionNotification(profile.user, data.rejectionReason);
+      // Send SMS notification with rejection reason (fire-and-forget)
+      notifyVerificationRejected({
+        userPhone: profile.user.phone,
+        companyName: profile.companyNameEn,
+        reason: data.rejectionReason,
+      });
 
       return NextResponse.json({
         message: "Business verification rejected",

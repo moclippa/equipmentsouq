@@ -98,6 +98,12 @@ npm run dev                     # Dev server at localhost:3000
 npm run build                   # Production build
 npm run lint                    # ESLint
 
+# Testing
+npm test                        # Vitest watch mode
+npm run test:run                # Single test run
+npm run test:coverage           # With coverage report
+npm run test:ui                 # Vitest UI
+
 # Database
 npm run db:seed                 # Seed categories (46 total)
 npm run db:reset                # Reset and reseed database

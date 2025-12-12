@@ -1,8 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { notifyOwnerOfNewLead } from "@/lib/notifications/sms";
+import {
+  successResponse,
+  validationErrorResponse,
+  requireAuth,
+  serviceResultToResponse,
+} from "@/lib/api-response";
+import { leadService, LeadUser } from "@/services/lead.service";
 
 const createLeadSchema = z.object({
   equipmentId: z.string().min(1),
@@ -16,129 +21,35 @@ const createLeadSchema = z.object({
  * Requires: authenticated user with verified phone
  */
 export async function POST(request: NextRequest) {
-  try {
-    // Require authentication
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Please log in to contact equipment owners" },
-        { status: 401 }
-      );
-    }
+  const session = await auth();
+  const authError = requireAuth(session);
+  if (authError) return authError;
 
-    // Check phone verification
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { phoneVerified: true, phone: true, fullName: true, email: true },
+  const body = await request.json();
+  const validation = createLeadSchema.safeParse(body);
+
+  if (!validation.success) {
+    return validationErrorResponse("Invalid request data", {
+      issues: validation.error.issues,
     });
-
-    if (!user?.phone || !user?.phoneVerified) {
-      return NextResponse.json(
-        {
-          error: "Phone verification required",
-          code: "PHONE_NOT_VERIFIED",
-          message: "Please verify your phone number before contacting sellers"
-        },
-        { status: 403 }
-      );
-    }
-
-    const body = await request.json();
-    const validation = createLeadSchema.safeParse(body);
-
-    if (!validation.success) {
-      return NextResponse.json(
-        { error: "Invalid request", details: validation.error.issues },
-        { status: 400 }
-      );
-    }
-
-    const data = validation.data;
-
-    // Get equipment to verify it exists and get owner info
-    const equipment = await prisma.equipment.findUnique({
-      where: { id: data.equipmentId },
-      select: {
-        id: true,
-        titleEn: true,
-        status: true,
-        ownerId: true,
-        owner: {
-          select: {
-            phone: true,
-            email: true,
-            fullName: true,
-          },
-        },
-      },
-    });
-
-    if (!equipment) {
-      return NextResponse.json(
-        { error: "Equipment not found" },
-        { status: 404 }
-      );
-    }
-
-    if (equipment.status !== "ACTIVE") {
-      return NextResponse.json(
-        { error: "Equipment is not available" },
-        { status: 400 }
-      );
-    }
-
-    // Create the lead and atomically increment lead count in a single transaction
-    // This prevents race conditions where concurrent requests could lose lead count updates
-    const lead = await prisma.$transaction(async (tx) => {
-      // Create the lead
-      const newLead = await tx.lead.create({
-        data: {
-          equipmentId: data.equipmentId,
-          name: user.fullName,
-          phone: user.phone!, // We verified this exists above
-          email: user.email || null,
-          message: data.message || null,
-          interestedIn: data.interestedIn,
-        },
-      });
-
-      // Atomically increment lead count within the same transaction
-      await tx.equipment.update({
-        where: { id: data.equipmentId },
-        data: { leadCount: { increment: 1 } },
-      });
-
-      return newLead;
-    });
-
-    // Send SMS notification to owner (fire-and-forget)
-    notifyOwnerOfNewLead({
-      ownerPhone: equipment.owner.phone,
-      ownerName: equipment.owner.fullName,
-      equipmentTitle: equipment.titleEn,
-      leadName: user.fullName,
-      interestedIn: data.interestedIn,
-    });
-
-    return NextResponse.json({
-      success: true,
-      lead: {
-        id: lead.id,
-        status: lead.status,
-      },
-      // Return owner contact info so user can reach out directly
-      contact: {
-        phone: equipment.owner.phone,
-        name: equipment.owner.fullName,
-      },
-    });
-  } catch (error) {
-    console.error("Create lead error:", error);
-    return NextResponse.json(
-      { error: "Failed to create lead" },
-      { status: 500 }
-    );
   }
+
+  // Build user object from session for service
+  const user: LeadUser = {
+    id: session!.user!.id!,
+    fullName: session!.user!.fullName || null,
+    phone: session!.user!.phone || null,
+    email: session!.user!.email || null,
+    phoneVerified: session!.user!.phoneVerified || false,
+  };
+
+  const result = await leadService.create(validation.data, user);
+
+  if (!result.success) {
+    return serviceResultToResponse(result);
+  }
+
+  return successResponse(result.data);
 }
 
 /**
@@ -146,67 +57,27 @@ export async function POST(request: NextRequest) {
  * List leads for the current user's equipment (owner view)
  */
 export async function GET(request: NextRequest) {
-  try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const session = await auth();
+  const authError = requireAuth(session);
+  if (authError) return authError;
 
-    const { searchParams } = new URL(request.url);
-    const status = searchParams.get("status");
-    const equipmentId = searchParams.get("equipmentId");
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
+  const { searchParams } = new URL(request.url);
+  const status = searchParams.get("status") || undefined;
+  const equipmentId = searchParams.get("equipmentId") || undefined;
+  const page = parseInt(searchParams.get("page") || "1");
+  const limit = parseInt(searchParams.get("limit") || "20");
 
-    // Build where clause - only show leads for equipment owned by this user
-    const where: Record<string, unknown> = {
-      equipment: {
-        ownerId: session.user.id,
-      },
-    };
+  const result = await leadService.listForOwner({
+    ownerId: session!.user!.id!,
+    status,
+    equipmentId,
+    page,
+    limit,
+  });
 
-    if (status) {
-      where.status = status;
-    }
-
-    if (equipmentId) {
-      where.equipmentId = equipmentId;
-    }
-
-    const total = await prisma.lead.count({ where });
-
-    const leads = await prisma.lead.findMany({
-      where,
-      include: {
-        equipment: {
-          select: {
-            id: true,
-            titleEn: true,
-            make: true,
-            model: true,
-            images: { where: { isPrimary: true }, take: 1 },
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
-
-    return NextResponse.json({
-      leads,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    });
-  } catch (error) {
-    console.error("List leads error:", error);
-    return NextResponse.json(
-      { error: "Failed to list leads" },
-      { status: 500 }
-    );
+  if (!result.success) {
+    return serviceResultToResponse(result);
   }
+
+  return successResponse(result.data);
 }

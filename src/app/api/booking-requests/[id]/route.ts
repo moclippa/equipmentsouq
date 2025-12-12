@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { notifyRenterOfBookingStatus } from "@/lib/notifications/sms";
 
 // ============================================================================
 // GET - Get a single booking request
@@ -294,7 +295,15 @@ export async function PATCH(
       });
     }
 
-    // TODO: Send SMS notification via Twilio
+    // Send SMS notification to renter (fire-and-forget)
+    if (newStatus === "CONFIRMED" || newStatus === "DECLINED") {
+      notifyRenterOfBookingStatus({
+        renterPhone: bookingRequest.renter?.phone || bookingRequest.renterPhone,
+        equipmentTitle: bookingRequest.equipment.titleEn,
+        status: newStatus,
+        ownerPhone: newStatus === "CONFIRMED" ? bookingRequest.equipment.contactPhone : undefined,
+      });
+    }
 
     return NextResponse.json({
       success: true,

@@ -6,7 +6,9 @@ import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AvailabilityStatusBadge } from "./availability-status-badge";
+import { OwnerTrustCompact } from "@/components/features/trust";
 import { MapPin } from "lucide-react";
+import type { TrustBadge } from "@prisma/client";
 
 export interface EquipmentCardData {
   id: string;
@@ -36,6 +38,13 @@ export interface EquipmentCardData {
   owner: {
     id: string;
     fullName: string | null;
+    trustMetrics?: {
+      badges: TrustBadge[];
+      trustScore: number;
+      responseRate: number;
+      totalReviews: number;
+      averageRating: number | null;
+    } | null;
   };
   images: Array<{
     url: string;
@@ -131,6 +140,19 @@ export const EquipmentGridCard = memo(function EquipmentGridCard({
           <p className="text-sm text-muted-foreground line-clamp-1">
             {equipment.make} {equipment.model} {equipment.year && `(${equipment.year})`}
           </p>
+
+          {/* Trust badges */}
+          {equipment.owner.trustMetrics && (
+            <div className="mt-2">
+              <OwnerTrustCompact
+                badges={equipment.owner.trustMetrics.badges}
+                trustScore={equipment.owner.trustMetrics.trustScore}
+                responseRate={equipment.owner.trustMetrics.responseRate}
+                reviewCount={equipment.owner.trustMetrics.totalReviews}
+                averageRating={equipment.owner.trustMetrics.averageRating}
+              />
+            </div>
+          )}
 
           <div className="flex items-center justify-between mt-3 text-sm text-muted-foreground">
             <span className="flex items-center">
@@ -235,6 +257,19 @@ export const EquipmentListCard = memo(function EquipmentListCard({
                 </div>
               </div>
             </div>
+
+            {/* Trust badges */}
+            {equipment.owner.trustMetrics && (
+              <div className="mt-2">
+                <OwnerTrustCompact
+                  badges={equipment.owner.trustMetrics.badges}
+                  trustScore={equipment.owner.trustMetrics.trustScore}
+                  responseRate={equipment.owner.trustMetrics.responseRate}
+                  reviewCount={equipment.owner.trustMetrics.totalReviews}
+                  averageRating={equipment.owner.trustMetrics.averageRating}
+                />
+              </div>
+            )}
 
             {/* Footer info */}
             <div className="flex items-center justify-between mt-3 pt-3 border-t text-sm text-muted-foreground">

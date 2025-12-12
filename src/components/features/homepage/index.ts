@@ -1,0 +1,10 @@
+export { HeroSection } from "./hero-section";
+export { TrustIndicators } from "./trust-indicators";
+export { CategoriesSection } from "./categories-section";
+export { FeaturedEquipmentSection } from "./featured-equipment-section";
+export { RecentTransactions } from "./recent-transactions";
+export { HowItWorksSection } from "./how-it-works-section";
+export { StatsSection } from "./stats-section";
+export { ForOwnersSection } from "./for-owners-section";
+export { CTASection } from "./cta-section";
+export { HomepageFooter } from "./homepage-footer";

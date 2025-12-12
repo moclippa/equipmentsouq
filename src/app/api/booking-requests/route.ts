@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { notifyOwnerOfBookingRequest } from "@/lib/notifications/sms";
 
 // ============================================================================
 // POST - Create a new booking request (renter)
@@ -185,7 +186,14 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // TODO: Send SMS notification to owner via Twilio
+    // Send SMS notification to owner (fire-and-forget)
+    notifyOwnerOfBookingRequest({
+      ownerPhone: equipment.owner.phone,
+      equipmentTitle: equipment.titleEn,
+      renterName: validatedData.name,
+      startDate: validatedData.startDate,
+      endDate: validatedData.endDate,
+    });
 
     return NextResponse.json({
       success: true,

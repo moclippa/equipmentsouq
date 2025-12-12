@@ -1,111 +1,22 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ContactForm } from "@/components/features/leads/contact-form";
 import { AvailabilityStatusBadge } from "@/components/features/search/availability-status-badge";
-import { BookingRequestForm } from "@/components/features/booking/booking-request-form";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  MapPin,
-  Calendar,
-  Clock,
-  Shield,
-  ChevronLeft,
-  Building2,
-  Phone,
-  Share2,
-  Heart,
-  Loader2,
-  AlertCircle,
-  Eye,
-  Tag,
-  Check,
-  Copy,
-  Pencil,
-  BarChart3,
-  CalendarCheck,
-  MessageSquare,
-} from "lucide-react";
-import { useAnalytics } from "@/hooks/use-analytics";
-import { toast } from "sonner";
-
-interface EquipmentImage {
-  id: string;
-  url: string;
-  isPrimary: boolean;
-  sortOrder: number;
-}
-
-interface Equipment {
-  id: string;
-  titleEn: string;
-  titleAr: string | null;
-  descriptionEn: string;
-  descriptionAr: string | null;
-  make: string;
-  model: string;
-  year: number | null;
-  condition: string;
-  hoursUsed: number | null;
-  specifications: Record<string, unknown> | null;
-  listingType: "FOR_RENT" | "FOR_SALE" | "BOTH";
-  status: "DRAFT" | "ACTIVE" | "RENTED" | "SOLD" | "PAUSED" | "ARCHIVED";
-  rentalPrice: string | null;
-  rentalPriceUnit: string | null;
-  salePrice: string | null;
-  priceOnRequest: boolean;
-  currency: string;
-  locationCity: string;
-  locationRegion: string;
-  locationCountry: string;
-  contactPhone: string;
-  contactWhatsApp: string | null;
-  viewCount: number;
-  category: {
-    id: string;
-    nameEn: string;
-    nameAr: string | null;
-    slug: string;
-    parentId: string | null;
-  };
-  owner: {
-    id: string;
-    fullName: string | null;
-    avatarUrl: string | null;
-    createdAt: string;
-    businessProfile: {
-      companyNameEn: string | null;
-      companyNameAr: string | null;
-      crVerificationStatus: string;
-    } | null;
-  };
-  images: EquipmentImage[];
-  _count: {
-    leads: number;
-  };
-}
-
-const CONDITION_LABELS: Record<string, { label: string; color: string }> = {
-  EXCELLENT: { label: "Excellent", color: "bg-green-500" },
-  GOOD: { label: "Good", color: "bg-blue-500" },
-  FAIR: { label: "Fair", color: "bg-yellow-500" },
-  POOR: { label: "Poor", color: "bg-red-500" },
-};
-
-const LISTING_TYPE_LABELS = {
-  FOR_RENT: "For Rent",
-  FOR_SALE: "For Sale",
-  BOTH: "For Rent or Sale",
-};
+import { EquipmentImageGallery } from "@/components/features/equipment/equipment-image-gallery";
+import { EquipmentQuickStats } from "@/components/features/equipment/equipment-quick-stats";
+import { OwnerManagementCard } from "@/components/features/equipment/owner-management-card";
+import { EquipmentPricingCard } from "@/components/features/equipment/equipment-pricing-card";
+import { OwnerTrustCard, ReviewList, ReviewListSkeleton } from "@/components/features/trust";
+import { ChevronLeft, MapPin, Loader2, AlertCircle } from "lucide-react";
+import { Equipment, CONDITION_LABELS, EquipmentCondition } from "@/types/equipment";
+import type { TrustBadge, ReviewRating, ReviewStatus } from "@prisma/client";
 
 export default function EquipmentDetailPage({
   params,
@@ -115,22 +26,63 @@ export default function EquipmentDetailPage({
   const { id } = use(params);
   const router = useRouter();
   const { data: session } = useSession();
-  const { trackEvent } = useAnalytics();
   const [equipment, setEquipment] = useState<Equipment | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
-  const [isFavorite, setIsFavorite] = useState(false);
+
+  // Trust metrics state
+  const [trustMetrics, setTrustMetrics] = useState<{
+    trustScore: number;
+    badges: TrustBadge[];
+    responseMetrics: {
+      responseRate: number;
+      avgResponseTimeHours: number | null;
+    };
+    reviewMetrics: {
+      totalReviews: number;
+      averageRating: number | null;
+    };
+    listingMetrics: {
+      activeListings: number;
+    };
+  } | null>(null);
+
+  // Reviews state
+  interface ReviewData {
+    id: string;
+    rating: ReviewRating;
+    title: string | null;
+    comment: string | null;
+    submittedAt: string | null;
+    reviewer: {
+      id: string;
+      fullName: string | null;
+      avatarUrl: string | null;
+    };
+    ownerResponse: string | null;
+    respondedAt: string | null;
+    isVerified: boolean;
+    status: ReviewStatus;
+    responseTimeHours: number | null;
+    didOwnerRespond: boolean;
+  }
+
+  interface RatingDistribution {
+    rating: ReviewRating;
+    count: number;
+  }
+
+  const [reviews, setReviews] = useState<ReviewData[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewsPage, setReviewsPage] = useState(1);
+  const [hasMoreReviews, setHasMoreReviews] = useState(false);
+  const [ratingDistribution, setRatingDistribution] = useState<RatingDistribution[]>([]);
 
   // Check if current user is the owner
-  const isOwner = session?.user?.id && equipment?.owner?.id && session.user.id === equipment.owner.id;
+  const isOwner =
+    session?.user?.id && equipment?.owner?.id && session.user.id === equipment.owner.id;
 
-  // Check if equipment is in favorites on mount
-  useEffect(() => {
-    const favorites = JSON.parse(localStorage.getItem("favorites") || "[]");
-    setIsFavorite(favorites.includes(id));
-  }, [id]);
-
+  // Fetch equipment data
   useEffect(() => {
     async function fetchEquipment() {
       try {
@@ -143,6 +95,12 @@ export default function EquipmentDetailPage({
         }
 
         setEquipment(data.equipment);
+
+        // Fetch trust metrics for the owner
+        if (data.equipment?.owner?.id) {
+          fetchTrustMetrics(data.equipment.owner.id);
+          fetchReviews(data.equipment.owner.id, 1);
+        }
       } catch (err) {
         console.error("Failed to fetch equipment:", err);
         setError("Failed to load equipment");
@@ -154,74 +112,50 @@ export default function EquipmentDetailPage({
     fetchEquipment();
   }, [id]);
 
-  const formatPrice = (amount: string | null, currency: string) => {
-    if (!amount) return null;
-    return new Intl.NumberFormat("en-SA", {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 0,
-    }).format(parseFloat(amount));
-  };
-
-  const getWhatsAppLink = (phone: string, title: string) => {
-    const cleanPhone = phone.replace(/\D/g, "");
-    const message = encodeURIComponent(
-      `Hi, I'm interested in your ${title} listing on EquipmentSouq.`
-    );
-    return `https://wa.me/${cleanPhone}?text=${message}`;
-  };
-
-  const handleShare = async () => {
-    if (!equipment) return;
-
-    const shareData = {
-      title: equipment.titleEn,
-      text: `Check out this ${equipment.make} ${equipment.model} on EquipmentSouq`,
-      url: window.location.href,
-    };
-
-    trackEvent("SHARE_CLICK", { equipmentId: equipment.id });
-
-    // Try native share first (works on mobile)
-    if (navigator.share && navigator.canShare?.(shareData)) {
-      try {
-        await navigator.share(shareData);
-        return;
-      } catch (err) {
-        // User cancelled or share failed, fall back to clipboard
-        if ((err as Error).name === "AbortError") return;
-      }
-    }
-
-    // Fall back to clipboard copy
+  // Fetch trust metrics
+  const fetchTrustMetrics = async (ownerId: string) => {
     try {
-      await navigator.clipboard.writeText(window.location.href);
-      toast.success("Link copied to clipboard");
-    } catch {
-      toast.error("Failed to copy link");
+      const res = await fetch(`/api/trust/${ownerId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTrustMetrics(data.data);
+        // Parse rating distribution from enriched format
+        if (data.data?.reviewMetrics?.ratingDistribution) {
+          setRatingDistribution(data.data.reviewMetrics.ratingDistribution);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch trust metrics:", err);
     }
   };
 
-  const handleFavorite = () => {
-    if (!equipment) return;
-
-    const favorites: string[] = JSON.parse(localStorage.getItem("favorites") || "[]");
-
-    if (isFavorite) {
-      // Remove from favorites
-      const updated = favorites.filter((fid) => fid !== equipment.id);
-      localStorage.setItem("favorites", JSON.stringify(updated));
-      setIsFavorite(false);
-      toast.success("Removed from favorites");
-    } else {
-      // Add to favorites
-      favorites.push(equipment.id);
-      localStorage.setItem("favorites", JSON.stringify(favorites));
-      setIsFavorite(true);
-      toast.success("Added to favorites");
-      trackEvent("FAVORITE_CLICK", { equipmentId: equipment.id });
+  // Fetch reviews
+  const fetchReviews = useCallback(async (ownerId: string, page: number) => {
+    setReviewsLoading(true);
+    try {
+      const res = await fetch(`/api/reviews?ownerId=${ownerId}&page=${page}&limit=5`);
+      if (res.ok) {
+        const data = await res.json();
+        if (page === 1) {
+          setReviews(data.data.reviews);
+        } else {
+          setReviews((prev) => [...prev, ...data.data.reviews]);
+        }
+        setHasMoreReviews(data.data.pagination.page < data.data.pagination.totalPages);
+        setReviewsPage(page);
+      }
+    } catch (err) {
+      console.error("Failed to fetch reviews:", err);
+    } finally {
+      setReviewsLoading(false);
     }
-  };
+  }, []);
+
+  const handleLoadMoreReviews = useCallback(() => {
+    if (equipment?.owner?.id) {
+      fetchReviews(equipment.owner.id, reviewsPage + 1);
+    }
+  }, [equipment?.owner?.id, reviewsPage, fetchReviews]);
 
   if (isLoading) {
     return (
@@ -249,11 +183,6 @@ export default function EquipmentDetailPage({
     label: equipment.condition,
     color: "bg-gray-500",
   };
-
-  const memberSince = new Date(equipment.owner.createdAt).toLocaleDateString("en-US", {
-    month: "short",
-    year: "numeric",
-  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -292,15 +221,15 @@ export default function EquipmentDetailPage({
                   {equipment.status === "RENTED"
                     ? "This equipment is currently rented"
                     : equipment.status === "SOLD"
-                    ? "This equipment has been sold"
-                    : "This equipment is not currently available"}
+                      ? "This equipment has been sold"
+                      : "This equipment is not currently available"}
                 </p>
                 <p className="text-sm text-amber-700 dark:text-amber-300">
                   {equipment.status === "RENTED"
                     ? "Contact the owner to check future availability or similar equipment."
                     : equipment.status === "SOLD"
-                    ? "Browse similar equipment or contact the owner for other listings."
-                    : "This listing may be temporarily unavailable."}
+                      ? "Browse similar equipment or contact the owner for other listings."
+                      : "This listing may be temporarily unavailable."}
                 </p>
               </div>
             </div>
@@ -311,100 +240,14 @@ export default function EquipmentDetailPage({
           {/* Left Column - Images & Details */}
           <div className="lg:col-span-2 space-y-6">
             {/* Image Gallery */}
-            <Card className="overflow-hidden">
-              <div className="relative aspect-[16/10] bg-muted">
-                {equipment.images.length > 0 ? (
-                  <>
-                    <Image
-                      src={equipment.images[selectedImageIndex]?.url || equipment.images[0].url}
-                      alt={equipment.titleEn}
-                      fill
-                      className="object-contain"
-                      priority
-                    />
-
-                    {/* Listing Type Badge */}
-                    <div className="absolute top-4 start-4 flex flex-col gap-2">
-                      <Badge className="bg-primary text-primary-foreground">
-                        <Tag className="w-3 h-3 me-1" />
-                        {LISTING_TYPE_LABELS[equipment.listingType]}
-                      </Badge>
-                    </div>
-
-                    {/* Share & Favorite/Edit */}
-                    <div className="absolute top-4 end-4 flex gap-2">
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        onClick={handleShare}
-                        aria-label="Share listing"
-                      >
-                        <Share2 className="w-4 h-4" />
-                      </Button>
-                      {isOwner ? (
-                        <Button
-                          variant="secondary"
-                          size="icon"
-                          onClick={() => router.push(`/my-listings/${equipment.id}/edit`)}
-                          aria-label="Edit listing"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="secondary"
-                          size="icon"
-                          onClick={handleFavorite}
-                          aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-                          aria-pressed={isFavorite}
-                          className={isFavorite ? "text-red-500 hover:text-red-600" : ""}
-                        >
-                          <Heart className={`w-4 h-4 ${isFavorite ? "fill-current" : ""}`} />
-                        </Button>
-                      )}
-                    </div>
-
-                    {/* View count */}
-                    <div className="absolute bottom-4 end-4">
-                      <Badge variant="secondary" className="bg-black/50 text-white border-0">
-                        <Eye className="w-3 h-3 me-1" />
-                        {equipment.viewCount} views
-                      </Badge>
-                    </div>
-                  </>
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                    No images available
-                  </div>
-                )}
-              </div>
-
-              {/* Thumbnail Gallery */}
-              {equipment.images.length > 1 && (
-                <div className="p-4 border-t">
-                  <div className="flex gap-2 overflow-x-auto pb-2">
-                    {equipment.images.map((img, index) => (
-                      <button
-                        key={img.id}
-                        onClick={() => setSelectedImageIndex(index)}
-                        className={`relative w-20 h-20 shrink-0 rounded-lg overflow-hidden border-2 transition-colors ${
-                          selectedImageIndex === index
-                            ? "border-primary"
-                            : "border-transparent hover:border-muted-foreground/50"
-                        }`}
-                      >
-                        <Image
-                          src={img.url}
-                          alt={`${equipment.titleEn} - Image ${index + 1}`}
-                          fill
-                          className="object-cover"
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </Card>
+            <EquipmentImageGallery
+              images={equipment.images}
+              title={equipment.titleEn}
+              listingType={equipment.listingType}
+              viewCount={equipment.viewCount}
+              equipmentId={equipment.id}
+              isOwner={!!isOwner}
+            />
 
             {/* Equipment Details */}
             <Card>
@@ -416,7 +259,8 @@ export default function EquipmentDetailPage({
                     </Badge>
                     <CardTitle className="text-2xl">{equipment.titleEn}</CardTitle>
                     <p className="text-muted-foreground mt-1">
-                      {equipment.make} {equipment.model} {equipment.year && `(${equipment.year})`}
+                      {equipment.make} {equipment.model}{" "}
+                      {equipment.year && `(${equipment.year})`}
                     </p>
                   </div>
                   <Badge className={`${conditionInfo.color} text-white`}>
@@ -426,30 +270,12 @@ export default function EquipmentDetailPage({
               </CardHeader>
               <CardContent className="space-y-6">
                 {/* Quick Stats */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div className="text-center p-3 bg-muted rounded-lg">
-                    <Calendar className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Year</p>
-                    <p className="font-medium">{equipment.year || "N/A"}</p>
-                  </div>
-                  <div className="text-center p-3 bg-muted rounded-lg">
-                    <Clock className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Hours</p>
-                    <p className="font-medium">
-                      {equipment.hoursUsed?.toLocaleString() || "N/A"}
-                    </p>
-                  </div>
-                  <div className="text-center p-3 bg-muted rounded-lg">
-                    <MapPin className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Location</p>
-                    <p className="font-medium">{equipment.locationCity}</p>
-                  </div>
-                  <div className="text-center p-3 bg-muted rounded-lg">
-                    <Tag className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Condition</p>
-                    <p className="font-medium">{conditionInfo.label}</p>
-                  </div>
-                </div>
+                <EquipmentQuickStats
+                  year={equipment.year}
+                  hoursUsed={equipment.hoursUsed}
+                  locationCity={equipment.locationCity}
+                  condition={equipment.condition as EquipmentCondition}
+                />
 
                 <Separator />
 
@@ -469,22 +295,20 @@ export default function EquipmentDetailPage({
                       <div>
                         <h3 className="font-semibold mb-3">Specifications</h3>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                          {Object.entries(equipment.specifications).map(
-                            ([key, value]) => (
-                              <div key={key} className="text-sm">
-                                <span className="text-muted-foreground capitalize">
-                                  {key.replace(/([A-Z])/g, " $1").trim()}
-                                </span>
-                                <p className="font-medium">
-                                  {typeof value === "boolean"
-                                    ? value
-                                      ? "Yes"
-                                      : "No"
-                                    : String(value)}
-                                </p>
-                              </div>
-                            )
-                          )}
+                          {Object.entries(equipment.specifications).map(([key, value]) => (
+                            <div key={key} className="text-sm">
+                              <span className="text-muted-foreground capitalize">
+                                {key.replace(/([A-Z])/g, " $1").trim()}
+                              </span>
+                              <p className="font-medium">
+                                {typeof value === "boolean"
+                                  ? value
+                                    ? "Yes"
+                                    : "No"
+                                  : String(value)}
+                              </p>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </>
@@ -495,251 +319,45 @@ export default function EquipmentDetailPage({
 
           {/* Right Column - Pricing & Contact */}
           <div className="space-y-6 lg:sticky lg:top-20 lg:self-start">
-            {/* Owner Management Card - shown when viewing own listing */}
+            {/* Owner Management Card */}
             {isOwner && (
-              <Card className="border-primary/50 bg-primary/5">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="bg-primary/10 text-primary">
-                      Your Listing
-                    </Badge>
-                  </div>
-                  <CardTitle className="text-lg">Manage Listing</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Listing Stats */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="text-center p-3 bg-background rounded-lg border">
-                      <Eye className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />
-                      <p className="text-2xl font-bold">{equipment.viewCount}</p>
-                      <p className="text-xs text-muted-foreground">Views</p>
-                    </div>
-                    <div className="text-center p-3 bg-background rounded-lg border">
-                      <BarChart3 className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />
-                      <p className="text-2xl font-bold">{equipment._count.leads}</p>
-                      <p className="text-xs text-muted-foreground">Leads</p>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* Action Buttons */}
-                  <div className="space-y-2">
-                    <Button asChild className="w-full">
-                      <Link href={`/my-listings/${equipment.id}/edit`}>
-                        <Pencil className="w-4 h-4 me-2" />
-                        Edit Listing
-                      </Link>
-                    </Button>
-                    <Button asChild variant="outline" className="w-full">
-                      <Link href="/my-leads">
-                        View All Leads
-                      </Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+              <OwnerManagementCard
+                equipmentId={equipment.id}
+                viewCount={equipment.viewCount}
+                leadCount={equipment._count.leads}
+              />
             )}
 
             {/* Pricing Card */}
-            <Card>
-              <CardHeader className="pb-2">
-                {equipment.priceOnRequest ? (
-                  <div className="text-xl font-semibold text-primary">
-                    Contact for Price
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {/* Rental Price */}
-                    {(equipment.listingType === "FOR_RENT" || equipment.listingType === "BOTH") &&
-                      equipment.rentalPrice && (
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-3xl font-bold">
-                            {formatPrice(equipment.rentalPrice, equipment.currency)}
-                          </span>
-                          <span className="text-muted-foreground">
-                            /{equipment.rentalPriceUnit || "day"}
-                          </span>
-                          {equipment.listingType === "BOTH" && (
-                            <Badge variant="outline" className="ms-2">Rental</Badge>
-                          )}
-                        </div>
-                      )}
+            <EquipmentPricingCard
+              equipmentId={equipment.id}
+              title={equipment.titleEn}
+              listingType={equipment.listingType}
+              status={equipment.status}
+              priceOnRequest={equipment.priceOnRequest}
+              rentalPrice={equipment.rentalPrice}
+              rentalPriceUnit={equipment.rentalPriceUnit}
+              salePrice={equipment.salePrice}
+              currency={equipment.currency}
+              contactPhone={equipment.contactPhone}
+              contactWhatsApp={equipment.contactWhatsApp}
+              categoryId={equipment.category.id}
+              isOwner={!!isOwner}
+            />
 
-                    {/* Sale Price */}
-                    {(equipment.listingType === "FOR_SALE" || equipment.listingType === "BOTH") &&
-                      equipment.salePrice && (
-                        <div className="flex items-baseline gap-2">
-                          <span className={equipment.listingType === "BOTH" ? "text-2xl font-semibold" : "text-3xl font-bold"}>
-                            {formatPrice(equipment.salePrice, equipment.currency)}
-                          </span>
-                          {equipment.listingType === "BOTH" && (
-                            <Badge variant="outline" className="ms-2">Buy</Badge>
-                          )}
-                        </div>
-                      )}
-                  </div>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Show contact options only for non-owners */}
-                {!isOwner && (
-                  <>
-                    {/* Not logged in or not verified - show single unified prompt */}
-                    {!session?.user?.phoneVerified ? (
-                      <div className="py-6">
-                        <div className="text-center space-y-4">
-                          <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                            <Phone className="w-8 h-8 text-muted-foreground" />
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-lg">
-                              {!session ? "Sign in to contact seller" : "Verify your phone"}
-                            </h3>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {!session
-                                ? "Create an account to call, WhatsApp, or send inquiries to the owner"
-                                : "Verify your phone number to unlock all contact options"
-                              }
-                            </p>
-                          </div>
-                          <Button
-                            className="w-full"
-                            onClick={() => router.push(!session ? "/login" : "/settings?verify=phone")}
-                          >
-                            {!session ? "Sign In to Contact" : "Verify Phone Number"}
-                          </Button>
-                          {!session && (
-                            <p className="text-xs text-muted-foreground">
-                              Don&apos;t have an account?{" "}
-                              <button
-                                onClick={() => router.push("/register")}
-                                className="text-primary hover:underline"
-                              >
-                                Register here
-                              </button>
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        {/* Verified user - show full contact options */}
-                        <div className="flex gap-2">
-                          <a
-                            href={getWhatsAppLink(equipment.contactWhatsApp || equipment.contactPhone, equipment.titleEn)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={() => trackEvent("WHATSAPP_CLICK", {
-                              equipmentId: equipment.id,
-                              categoryId: equipment.category.id,
-                              listingType: equipment.listingType,
-                            })}
-                            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-[#25D366] text-white hover:bg-[#20BD5A] transition-colors font-medium"
-                          >
-                            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                            </svg>
-                            <span>WhatsApp</span>
-                          </a>
-                          <a
-                            href={`tel:${equipment.contactPhone}`}
-                            onClick={() => trackEvent("CALL_CLICK", {
-                              equipmentId: equipment.id,
-                              categoryId: equipment.category.id,
-                              listingType: equipment.listingType,
-                            })}
-                            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-input bg-background hover:bg-muted transition-colors font-medium"
-                          >
-                            <Phone className="w-5 h-5" />
-                            <span>Call</span>
-                          </a>
-                        </div>
-
-                        <Separator />
-
-                        {/* Contact Options - Tabs for Rental, Simple Form for Sale-only */}
-                        {(equipment.listingType === "FOR_RENT" || equipment.listingType === "BOTH") && equipment.status === "ACTIVE" ? (
-                          <Tabs defaultValue="inquiry" className="w-full">
-                            <TabsList className="grid w-full grid-cols-2">
-                              <TabsTrigger value="inquiry" className="text-xs sm:text-sm">
-                                <MessageSquare className="w-3.5 h-3.5 me-1.5" />
-                                Send Inquiry
-                              </TabsTrigger>
-                              <TabsTrigger value="booking" className="text-xs sm:text-sm">
-                                <CalendarCheck className="w-3.5 h-3.5 me-1.5" />
-                                Request Dates
-                              </TabsTrigger>
-                            </TabsList>
-                            <TabsContent value="inquiry" className="mt-4">
-                              <ContactForm
-                                equipmentId={equipment.id}
-                                equipmentTitle={equipment.titleEn}
-                                listingType={equipment.listingType}
-                              />
-                            </TabsContent>
-                            <TabsContent value="booking" className="mt-4">
-                              <BookingRequestForm
-                                equipmentId={equipment.id}
-                                equipmentTitle={equipment.titleEn}
-                              />
-                            </TabsContent>
-                          </Tabs>
-                        ) : (
-                          <ContactForm
-                            equipmentId={equipment.id}
-                            equipmentTitle={equipment.titleEn}
-                            listingType={equipment.listingType}
-                          />
-                        )}
-                      </>
-                    )}
-                  </>
-                )}
-
-                {/* Owner sees a summary instead */}
-                {isOwner && (
-                  <p className="text-sm text-muted-foreground text-center py-2">
-                    This is how your listing pricing appears to potential buyers
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Owner Card - only show to non-owners */}
+            {/* Owner Trust Card - only show to non-owners */}
             {!isOwner && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Listed by</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="w-12 h-12">
-                      <AvatarImage src={equipment.owner.avatarUrl || undefined} />
-                      <AvatarFallback>
-                        {equipment.owner.fullName?.[0]?.toUpperCase() || "U"}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">
-                        {equipment.owner.businessProfile?.companyNameEn ||
-                          equipment.owner.fullName ||
-                          "Owner"}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        Member since {memberSince}
-                      </p>
-                    </div>
-                  </div>
-
-                  {equipment.owner.businessProfile?.crVerificationStatus === "VERIFIED" && (
-                    <Badge variant="secondary" className="w-full justify-center py-1">
-                      <Shield className="w-3 h-3 me-1" />
-                      Verified Business
-                    </Badge>
-                  )}
-                </CardContent>
-              </Card>
+              <OwnerTrustCard
+                owner={{
+                  id: equipment.owner.id,
+                  fullName: equipment.owner.fullName,
+                  avatarUrl: equipment.owner.avatarUrl,
+                  memberSince: equipment.owner.createdAt,
+                  businessProfile: equipment.owner.businessProfile,
+                  trustMetrics: trustMetrics,
+                }}
+                equipmentId={equipment.id}
+              />
             )}
 
             {/* Location Card */}
@@ -760,6 +378,25 @@ export default function EquipmentDetailPage({
             </Card>
           </div>
         </div>
+
+        {/* Reviews Section */}
+        {!isOwner && (
+          <div className="mt-8">
+            {reviewsLoading && reviews.length === 0 ? (
+              <ReviewListSkeleton />
+            ) : (
+              <ReviewList
+                reviews={reviews}
+                totalCount={trustMetrics?.reviewMetrics.totalReviews ?? 0}
+                averageRating={trustMetrics?.reviewMetrics.averageRating ?? null}
+                ratingDistribution={ratingDistribution}
+                isLoading={reviewsLoading}
+                hasMore={hasMoreReviews}
+                onLoadMore={handleLoadMoreReviews}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
