@@ -1,0 +1,289 @@
+name: Performance Testing
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/app/api/**'
+      - 'src/app/(search)/**'
+      - 'src/app/(dashboard)/**'
+      - 'src/lib/**'
+      - 'prisma/**'
+      - 'tests/load/**'
+      - '.github/workflows/performance-test.yml'
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Test scenario to run'
+        required: true
+        default: 'normal'
+        type: choice
+        options:
+          - normal
+          - spike
+          - stress
+          - soak
+  schedule:
+    # Run weekly performance regression tests (Mondays at 2 AM UTC)
+    - cron: '0 2 * * 1'
+
+env:
+  NODE_VERSION: '20'
+  POSTGRES_VERSION: '16'
+
+jobs:
+  performance-test:
+    name: Load Test (${{ github.event.inputs.scenario || 'normal' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: equipmentsouq_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup test environment
+        run: |
+          cp .env.example .env
+          # Set test database URL
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/equipmentsouq_test?schema=public" >> .env
+          # Set required secrets (use dummy values for testing)
+          echo "NEXTAUTH_SECRET=$(openssl rand -base64 32)" >> .env
+          echo "NEXTAUTH_URL=http://localhost:3000" >> .env
+          echo "ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
+          echo "NODE_ENV=test" >> .env
+
+      - name: Run database migrations
+        run: |
+          npx prisma migrate deploy
+          npx prisma db seed
+
+      - name: Build Next.js application
+        run: npm run build
+        env:
+          # Disable telemetry in CI
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - name: Start Next.js server
+        run: |
+          npm start &
+          # Wait for server to be ready
+          npx wait-on http://localhost:3000 --timeout 60000
+        env:
+          PORT: 3000
+
+      - name: Run load tests (normal)
+        if: github.event.inputs.scenario == 'normal' || github.event.inputs.scenario == ''
+        run: |
+          k6 run \
+            --out json=test-results-normal.json \
+            --summary-export=summary-normal.json \
+            tests/load/k6-load-test.js
+        env:
+          BASE_URL: http://localhost:3000
+          SCENARIO: normal
+
+      - name: Run load tests (spike)
+        if: github.event.inputs.scenario == 'spike'
+        run: |
+          k6 run \
+            --out json=test-results-spike.json \
+            --summary-export=summary-spike.json \
+            tests/load/k6-load-test.js
+        env:
+          BASE_URL: http://localhost:3000
+          SCENARIO: spike
+
+      - name: Run load tests (stress)
+        if: github.event.inputs.scenario == 'stress'
+        run: |
+          k6 run \
+            --out json=test-results-stress.json \
+            --summary-export=summary-stress.json \
+            tests/load/k6-load-test.js
+        env:
+          BASE_URL: http://localhost:3000
+          SCENARIO: stress
+
+      - name: Run load tests (soak)
+        if: github.event.inputs.scenario == 'soak'
+        run: |
+          k6 run \
+            --out json=test-results-soak.json \
+            --summary-export=summary-soak.json \
+            tests/load/k6-load-test.js
+        env:
+          BASE_URL: http://localhost:3000
+          SCENARIO: soak
+
+      - name: Check performance budgets
+        id: budget_check
+        run: |
+          node tests/load/check-budgets.js
+        continue-on-error: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-test-results-${{ github.event.inputs.scenario || 'normal' }}
+          path: |
+            test-results-*.json
+            summary-*.json
+          retention-days: 30
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const scenario = '${{ github.event.inputs.scenario || 'normal' }}';
+            const summaryFile = `summary-${scenario}.json`;
+
+            if (!fs.existsSync(summaryFile)) {
+              console.log('Summary file not found, skipping PR comment');
+              return;
+            }
+
+            const summary = JSON.parse(fs.readFileSync(summaryFile, 'utf8'));
+            const metrics = summary.metrics;
+
+            // Extract key metrics
+            const httpDuration = metrics.http_req_duration;
+            const httpFailed = metrics.http_req_failed;
+            const searchTime = metrics.search_response_time || {};
+            const homepageTime = metrics.homepage_load_time || {};
+
+            // Format performance summary
+            const comment = `## 🚀 Performance Test Results (${scenario})
+
+            ### Key Metrics
+
+            | Metric | P50 | P95 | P99 | Max | Status |
+            |--------|-----|-----|-----|-----|--------|
+            | **HTTP Duration** | ${httpDuration.values['p(50)']?.toFixed(0) || 'N/A'}ms | ${httpDuration.values['p(95)']?.toFixed(0) || 'N/A'}ms | ${httpDuration.values['p(99)']?.toFixed(0) || 'N/A'}ms | ${httpDuration.values.max?.toFixed(0) || 'N/A'}ms | ${httpDuration.values['p(95)'] < 1000 ? '✅' : '⚠️'} |
+            | **Homepage Load** | ${homepageTime.values?.['p(50)']?.toFixed(0) || 'N/A'}ms | ${homepageTime.values?.['p(95)']?.toFixed(0) || 'N/A'}ms | ${homepageTime.values?.['p(99)']?.toFixed(0) || 'N/A'}ms | ${homepageTime.values?.max?.toFixed(0) || 'N/A'}ms | ${homepageTime.values?.['p(95)'] < 2500 ? '✅' : '⚠️'} |
+            | **Search Response** | ${searchTime.values?.['p(50)']?.toFixed(0) || 'N/A'}ms | ${searchTime.values?.['p(95)']?.toFixed(0) || 'N/A'}ms | ${searchTime.values?.['p(99)']?.toFixed(0) || 'N/A'}ms | ${searchTime.values?.max?.toFixed(0) || 'N/A'}ms | ${searchTime.values?.['p(95)'] < 1000 ? '✅' : '⚠️'} |
+
+            ### Error Rates
+
+            - **HTTP Failures**: ${(httpFailed.values.rate * 100).toFixed(2)}% ${httpFailed.values.rate < 0.05 ? '✅' : '❌'}
+            - **Total Requests**: ${metrics.http_reqs.values.count}
+            - **Failed Requests**: ${metrics.http_reqs.values.count * httpFailed.values.rate}
+
+            ### Thresholds
+
+            ${summary.thresholds ? Object.entries(summary.thresholds).map(([name, result]) =>
+              `- ${result.ok ? '✅' : '❌'} \`${name}\``
+            ).join('\n') : 'No thresholds defined'}
+
+            ### Performance Budget Status
+
+            ${fs.existsSync('budget-check-results.json') ?
+              JSON.parse(fs.readFileSync('budget-check-results.json')).status :
+              'Budget check not available'}
+
+            <details>
+            <summary>Full Test Summary</summary>
+
+            \`\`\`json
+            ${JSON.stringify(summary, null, 2)}
+            \`\`\`
+
+            </details>
+
+            ---
+            📊 Full test results available in [workflow artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Fail if budgets exceeded
+        if: steps.budget_check.outcome == 'failure'
+        run: |
+          echo "::error::Performance budgets exceeded. See test results for details."
+          exit 1
+
+  baseline-comparison:
+    name: Compare Against Baseline
+    runs-on: ubuntu-latest
+    needs: performance-test
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download current test results
+        uses: actions/download-artifact@v4
+        with:
+          name: performance-test-results-${{ github.event.inputs.scenario || 'normal' }}
+          path: ./current-results
+
+      - name: Download baseline results
+        uses: dawidd6/action-download-artifact@v3
+        continue-on-error: true
+        with:
+          workflow: performance-test.yml
+          branch: main
+          name: performance-test-results-normal
+          path: ./baseline-results
+
+      - name: Compare performance
+        run: |
+          if [ ! -f "./baseline-results/summary-normal.json" ]; then
+            echo "No baseline found, skipping comparison"
+            exit 0
+          fi
+
+          node tests/load/compare-baseline.js \
+            --baseline ./baseline-results/summary-normal.json \
+            --current ./current-results/summary-normal.json \
+            --threshold 20
+
+      - name: Upload comparison report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-comparison
+          path: comparison-report.json
+          retention-days: 30

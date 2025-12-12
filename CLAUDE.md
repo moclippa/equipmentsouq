@@ -24,6 +24,7 @@ EquipmentSouq is a **Haraj-style classifieds platform** for heavy equipment rent
 | i18n | next-intl (Arabic + English, RTL) |
 | SMS | Twilio (OTP + lead notifications) |
 | Storage | S3/R2 compatible (presigned uploads) |
+| Caching | Upstash Redis (rate limiting + caching) |
 
 ## Quick Start
 
@@ -146,6 +147,23 @@ AI client pattern: `src/lib/ai/client.ts` (Claude primary), `src/lib/ai/gemini-c
 - `(search)`: Public search and equipment detail
 - `admin`: Admin panel (role-protected)
 
+### Caching & Rate Limiting (`src/lib/cache.ts`, `src/middleware.ts`)
+Uses Upstash Redis for serverless-compatible distributed caching and rate limiting:
+
+**Cache TTLs**:
+- Categories: 24 hours (static data)
+- Featured equipment: 1 hour
+- Stats: 5 minutes
+- User sessions: 30 minutes
+
+**Rate Limits** (sliding window):
+- Auth endpoints: 5 req/hour (register, OTP send)
+- AI endpoints: 20-30 req/hour
+- User actions: 20-50 req/hour
+- Default: 100 req/minute
+
+**Graceful fallback**: When Redis is unavailable, falls back to in-memory (limited in serverless)
+
 ## Environment Variables
 
 Required:
@@ -166,6 +184,8 @@ S3_ENDPOINT=...                  # File uploads
 S3_BUCKET=...
 S3_ACCESS_KEY=...
 S3_SECRET_KEY=...
+UPSTASH_REDIS_REST_URL=...       # Rate limiting + caching
+UPSTASH_REDIS_REST_TOKEN=...
 ```
 
 ## Code Patterns

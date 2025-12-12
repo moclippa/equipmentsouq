@@ -324,6 +324,10 @@ model Equipment {
   viewCount           Int               @default(0)
   leadCount           Int               @default(0)
 
+  // Full-text search vector (managed by PostgreSQL trigger)
+  // This column is populated automatically - do not set manually
+  // searchVector     Unsupported("tsvector")?
+
   // Timestamps
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
@@ -335,16 +339,26 @@ model Equipment {
   availabilityBlocks  AvailabilityBlock[]
   bookingRequests     BookingRequest[]
 
+  // === INDEXES ===
+  // Primary filters
   @@index([ownerId])
   @@index([categoryId])
   @@index([status])
-  @@index([status, statusChangedAt])  // For recent transactions query
   @@index([listingType])
   @@index([locationCity])
   @@index([locationCountry])
+  @@index([createdAt])
+
+  // Price range queries
   @@index([rentalPrice])
   @@index([salePrice])
-  @@index([createdAt])
+
+  // Compound indexes for common query patterns
+  @@index([status, statusChangedAt])           // Recent transactions query
+  @@index([status, locationCountry, listingType]) // Search filters combo
+  @@index([status, categoryId])                // Category browsing
+  @@index([status, locationCity])              // Local search
+  @@index([ownerId, status, createdAt])        // Owner's listing management
 }
 
 model EquipmentImage {
@@ -393,9 +407,12 @@ model Lead {
 
   createdAt       DateTime      @default(now())
 
+  // === INDEXES ===
   @@index([equipmentId])
   @@index([status])
   @@index([createdAt])
+  @@index([equipmentId, status, createdAt])  // Owner's lead management
+  @@index([status, createdAt])               // Dashboard stats
 }
 
 // ============================================================================
@@ -463,12 +480,15 @@ model BookingRequest {
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 
+  // === INDEXES ===
   @@index([equipmentId])
   @@index([renterId])
   @@index([status])
   @@index([expiresAt])
-  @@index([equipmentId, startDate, endDate])
-  @@index([equipmentId, status])
+  @@index([equipmentId, startDate, endDate])        // Date range queries
+  @@index([equipmentId, status])                    // Owner dashboard filter
+  @@index([equipmentId, status, startDate, endDate]) // Conflict detection
+  @@index([renterId, status, createdAt])            // Renter's request history
 }
 
 // ============================================================================

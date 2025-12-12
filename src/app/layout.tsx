@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { Toaster } from "@/components/ui/sonner";
 import { SessionProvider } from "@/components/providers/session-provider";
+import { ServiceWorkerProvider } from "@/components/providers/service-worker-provider";
 import { OrganizationSchema, WebsiteSchema } from "@/components/seo/structured-data";
 import { isRTL, type Locale } from "@/i18n/config";
 import "./globals.css";
@@ -129,11 +130,20 @@ export default async function RootLayout({
         <WebsiteSchema />
       </head>
       <body className={`${inter.variable} font-sans antialiased`}>
+        {/* Skip navigation link for keyboard users */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-4 focus:start-4 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          Skip to main content
+        </a>
         <SessionProvider>
-          <NextIntlClientProvider messages={messages}>
-            {children}
-            <Toaster position={dir === "rtl" ? "top-left" : "top-right"} />
-          </NextIntlClientProvider>
+          <ServiceWorkerProvider>
+            <NextIntlClientProvider messages={messages}>
+              {children}
+              <Toaster position={dir === "rtl" ? "top-left" : "top-right"} />
+            </NextIntlClientProvider>
+          </ServiceWorkerProvider>
         </SessionProvider>
       </body>
     </html>

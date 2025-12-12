@@ -4,6 +4,41 @@ import { prisma } from "@/lib/prisma";
 // Cron job to auto-expire pending booking requests
 // Runs every hour to catch expired requests
 
+/**
+ * Verify cron job authentication
+ * Supports both CRON_SECRET and Vercel's built-in cron authentication
+ */
+function verifyCronAuth(request: NextRequest): { authorized: boolean; error?: string } {
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = request.headers.get("authorization");
+  const vercelCronHeader = request.headers.get("x-vercel-cron");
+
+  // In production, require authentication
+  if (process.env.NODE_ENV === "production") {
+    // Option 1: Vercel Cron built-in authentication
+    if (vercelCronHeader === "1") {
+      return { authorized: true };
+    }
+
+    // Option 2: CRON_SECRET (for manual triggers or other cron services)
+    if (!cronSecret) {
+      console.error("[CRON] CRON_SECRET not configured - cron jobs require authentication");
+      return { authorized: false, error: "Cron authentication not configured" };
+    }
+
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      return { authorized: false, error: "Unauthorized" };
+    }
+  }
+
+  // In development, allow but warn if no secret configured
+  if (!cronSecret && process.env.NODE_ENV === "development") {
+    console.warn("[CRON] Warning: CRON_SECRET not set. Configure it for production.");
+  }
+
+  return { authorized: true };
+}
+
 export async function GET(request: NextRequest) {
   return handleExpiry(request);
 }
@@ -13,14 +48,13 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleExpiry(request: NextRequest) {
-  try {
-    // Verify cron secret for security
-    const authHeader = request.headers.get("authorization");
-    const cronSecret = process.env.CRON_SECRET;
+  // Verify cron authentication
+  const authResult = verifyCronAuth(request);
+  if (!authResult.authorized) {
+    return NextResponse.json({ error: authResult.error }, { status: 401 });
+  }
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  try {
 
     // Find all pending requests that have expired
     const expiredRequests = await prisma.bookingRequest.findMany({

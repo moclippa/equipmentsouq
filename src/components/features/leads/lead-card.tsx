@@ -191,9 +191,9 @@ export function LeadCard({ lead, onStatusUpdate }: LeadCardProps) {
               size="sm"
               onClick={handleMarkContacted}
               disabled={isUpdating}
-              className="ml-auto"
+              className="ms-auto"
             >
-              <CheckCircle className="w-4 h-4 mr-1" />
+              <CheckCircle className="w-4 h-4 me-1" />
               Mark Contacted
             </Button>
           )}

@@ -8,6 +8,9 @@ const verifySchema = z.object({
   code: z.string().length(6, "OTP must be 6 digits"),
 });
 
+// Maximum failed attempts before OTP is invalidated
+const MAX_OTP_ATTEMPTS = 5;
+
 /**
  * POST /api/auth/otp/verify
  * Verify OTP code for an authenticated user (for phone verification in settings)
@@ -23,11 +26,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { phone, code } = verifySchema.parse(body);
 
-    // Find the OTP code
-    const otpRecord = await prisma.oTPCode.findFirst({
+    // First, check if there's an active (non-expired, non-verified) OTP for this phone
+    const activeOtp = await prisma.oTPCode.findFirst({
       where: {
         phone,
-        code,
         type: "VERIFY",
         verified: false,
         expiresAt: { gt: new Date() },
@@ -35,12 +37,43 @@ export async function POST(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    if (!otpRecord) {
+    // If no active OTP exists, return error
+    if (!activeOtp) {
       return NextResponse.json(
-        { error: "Invalid or expired code" },
+        { error: "No active verification code. Please request a new one." },
         { status: 400 }
       );
     }
+
+    // Check if too many failed attempts
+    if (activeOtp.attempts >= MAX_OTP_ATTEMPTS) {
+      return NextResponse.json(
+        { error: "Too many failed attempts. Please request a new code." },
+        { status: 429 }
+      );
+    }
+
+    // Check if the code matches
+    if (activeOtp.code !== code) {
+      // Increment attempts on failed verification
+      await prisma.oTPCode.update({
+        where: { id: activeOtp.id },
+        data: { attempts: { increment: 1 } },
+      });
+
+      const remainingAttempts = MAX_OTP_ATTEMPTS - activeOtp.attempts - 1;
+      return NextResponse.json(
+        {
+          error: remainingAttempts > 0
+            ? `Invalid code. ${remainingAttempts} attempts remaining.`
+            : "Invalid code. Please request a new one."
+        },
+        { status: 400 }
+      );
+    }
+
+    // Code is valid - find the record (for type safety)
+    const otpRecord = activeOtp;
 
     // Mark OTP as verified
     await prisma.oTPCode.update({

@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json.schemastore.org/web-performance-budgets.json",
+  "description": "Performance budgets for EquipmentSouq - defines acceptable performance thresholds for all critical user journeys",
+  "budgets": [
+    {
+      "name": "Homepage",
+      "path": "/",
+      "metrics": {
+        "LCP": {
+          "value": 2500,
+          "unit": "ms",
+          "description": "Largest Contentful Paint - main content should be visible within 2.5s (Google's 'good' threshold)"
+        },
+        "FCP": {
+          "value": 1800,
+          "unit": "ms",
+          "description": "First Contentful Paint - first visual element should appear within 1.8s"
+        },
+        "FID": {
+          "value": 100,
+          "unit": "ms",
+          "description": "First Input Delay - page should be interactive within 100ms"
+        },
+        "CLS": {
+          "value": 0.1,
+          "unit": "score",
+          "description": "Cumulative Layout Shift - minimal layout shifts during load"
+        },
+        "TTFB": {
+          "value": 600,
+          "unit": "ms",
+          "description": "Time to First Byte - server should respond within 600ms"
+        },
+        "TotalPageSize": {
+          "value": 2000,
+          "unit": "KB",
+          "description": "Total page weight including all assets"
+        },
+        "ImageSize": {
+          "value": 1000,
+          "unit": "KB",
+          "description": "Total image weight (should be optimized with Next.js Image)"
+        },
+        "JSSize": {
+          "value": 500,
+          "unit": "KB",
+          "description": "Total JavaScript bundle size"
+        }
+      },
+      "thresholds": {
+        "p50": "good",
+        "p75": "acceptable",
+        "p95": "needs-improvement",
+        "p99": "poor"
+      }
+    },
+    {
+      "name": "Equipment Search",
+      "path": "/search",
+      "metrics": {
+        "LCP": {
+          "value": 2000,
+          "unit": "ms",
+          "description": "Search results should appear quickly"
+        },
+        "FCP": {
+          "value": 1500,
+          "unit": "ms",
+          "description": "Search page should render fast"
+        },
+        "APIResponseTime": {
+          "value": 1000,
+          "unit": "ms",
+          "description": "Search API should respond within 1s (P95)"
+        },
+        "DatabaseQueryTime": {
+          "value": 300,
+          "unit": "ms",
+          "description": "Database queries should be optimized (P95)"
+        }
+      }
+    },
+    {
+      "name": "Equipment Detail",
+      "path": "/equipment/[id]",
+      "metrics": {
+        "LCP": {
+          "value": 2500,
+          "unit": "ms",
+          "description": "Main equipment image should load within 2.5s"
+        },
+        "FCP": {
+          "value": 1500,
+          "unit": "ms",
+          "description": "Basic layout should render quickly"
+        },
+        "APIResponseTime": {
+          "value": 500,
+          "unit": "ms",
+          "description": "Equipment fetch API should be fast (P95)"
+        }
+      }
+    },
+    {
+      "name": "API Endpoints - General",
+      "path": "/api/*",
+      "metrics": {
+        "ResponseTime_P50": {
+          "value": 200,
+          "unit": "ms",
+          "description": "50th percentile - half of requests should be under 200ms"
+        },
+        "ResponseTime_P95": {
+          "value": 500,
+          "unit": "ms",
+          "description": "95th percentile - 95% of requests should be under 500ms"
+        },
+        "ResponseTime_P99": {
+          "value": 1000,
+          "unit": "ms",
+          "description": "99th percentile - 99% of requests should be under 1s"
+        },
+        "ErrorRate": {
+          "value": 1,
+          "unit": "%",
+          "description": "Error rate should be below 1%"
+        },
+        "Throughput": {
+          "value": 100,
+          "unit": "req/s",
+          "description": "System should handle at least 100 requests per second"
+        }
+      }
+    },
+    {
+      "name": "API - Equipment Search",
+      "path": "/api/equipment",
+      "metrics": {
+        "ResponseTime_P95": {
+          "value": 1000,
+          "unit": "ms",
+          "description": "Search with filters should complete within 1s (P95)"
+        },
+        "ResponseTime_P99": {
+          "value": 2000,
+          "unit": "ms",
+          "description": "Even complex searches should complete within 2s (P99)"
+        },
+        "DatabaseQueryTime": {
+          "value": 300,
+          "unit": "ms",
+          "description": "Prisma queries should be optimized with proper indexes"
+        }
+      },
+      "optimizations": [
+        "Add database indexes on: category, location, listingType, status",
+        "Implement query result caching for popular searches",
+        "Use Prisma select to fetch only needed fields",
+        "Consider implementing Elasticsearch for full-text search"
+      ]
+    },
+    {
+      "name": "API - Equipment Detail",
+      "path": "/api/equipment/[id]",
+      "metrics": {
+        "ResponseTime_P95": {
+          "value": 500,
+          "unit": "ms",
+          "description": "Single equipment fetch should be very fast"
+        },
+        "CacheHitRate": {
+          "value": 80,
+          "unit": "%",
+          "description": "80% of requests should be served from cache (Redis/CDN)"
+        }
+      },
+      "optimizations": [
+        "Implement Redis caching with 5-minute TTL",
+        "Use Prisma include to minimize N+1 queries",
+        "Consider CDN edge caching for public equipment"
+      ]
+    },
+    {
+      "name": "API - Lead Creation",
+      "path": "/api/leads (POST)",
+      "metrics": {
+        "ResponseTime_P95": {
+          "value": 1000,
+          "unit": "ms",
+          "description": "Lead creation includes SMS notification, allow up to 1s"
+        },
+        "SuccessRate": {
+          "value": 99,
+          "unit": "%",
+          "description": "Lead creation should be highly reliable"
+        }
+      },
+      "optimizations": [
+        "Send SMS notifications asynchronously (don't block response)",
+        "Implement retry logic for SMS failures",
+        "Add database transaction to ensure data consistency"
+      ]
+    },
+    {
+      "name": "API - Authentication (OTP)",
+      "path": "/api/auth/otp/*",
+      "metrics": {
+        "ResponseTime_P95": {
+          "value": 1000,
+          "unit": "ms",
+          "description": "OTP send includes Twilio API call"
+        },
+        "ResponseTime_P95_Verify": {
+          "value": 500,
+          "unit": "ms",
+          "description": "OTP verification should be fast (local DB check)"
+        },
+        "ErrorRate": {
+          "value": 0.5,
+          "unit": "%",
+          "description": "Auth errors should be minimal (critical flow)"
+        }
+      },
+      "optimizations": [
+        "Implement rate limiting to prevent abuse (Upstash Redis)",
+        "Cache OTP codes in Redis instead of PostgreSQL for faster lookup",
+        "Add exponential backoff for Twilio API retries"
+      ]
+    },
+    {
+      "name": "API - Categories",
+      "path": "/api/categories",
+      "metrics": {
+        "ResponseTime_P95": {
+          "value": 200,
+          "unit": "ms",
+          "description": "Categories are static and should be heavily cached"
+        },
+        "CacheHitRate": {
+          "value": 99,
+          "unit": "%",
+          "description": "Categories should almost always be served from cache"
+        }
+      },
+      "optimizations": [
+        "Implement aggressive Redis caching (24-hour TTL)",
+        "Consider static generation (ISR with 1-day revalidation)",
+        "Add CDN edge caching with long max-age"
+      ]
+    }
+  ],
+  "loadTestingThresholds": {
+    "normalLoad": {
+      "concurrentUsers": 100,
+      "duration": "5m",
+      "description": "Expected traffic during normal business hours"
+    },
+    "peakLoad": {
+      "concurrentUsers": 300,
+      "duration": "5m",
+      "description": "Expected traffic during peak hours (lunch, evening)"
+    },
+    "spikeLoad": {
+      "concurrentUsers": 500,
+      "duration": "2m",
+      "description": "Sudden traffic spike (e.g., marketing campaign, social media viral)"
+    },
+    "stressTest": {
+      "concurrentUsers": 1000,
+      "duration": "10m",
+      "description": "Stress test to find breaking point"
+    },
+    "soakTest": {
+      "concurrentUsers": 50,
+      "duration": "30m",
+      "description": "Extended test to find memory leaks and degradation over time"
+    }
+  },
+  "infrastructureRequirements": {
+    "database": {
+      "connections": {
+        "min": 10,
+        "max": 100,
+        "description": "PostgreSQL connection pool sizing"
+      },
+      "indexes": [
+        "equipment(category, location, status)",
+        "equipment(ownerId, status)",
+        "lead(equipmentId, status)",
+        "lead(renterId, status)",
+        "otpCode(phone, expiresAt)"
+      ]
+    },
+    "caching": {
+      "redis": {
+        "enabled": true,
+        "ttl": {
+          "categories": "24h",
+          "equipment": "5m",
+          "otp": "5m",
+          "rateLimits": "1h"
+        }
+      }
+    },
+    "cdn": {
+      "enabled": true,
+      "cacheableAssets": [
+        "images (equipment, avatars)",
+        "static pages (homepage, about)",
+        "API responses (categories)"
+      ]
+    }
+  },
+  "monitoringAlerts": {
+    "errorRate": {
+      "threshold": "5%",
+      "window": "5m",
+      "action": "Alert on-call engineer"
+    },
+    "responseTime": {
+      "threshold": "p95 > 2s",
+      "window": "5m",
+      "action": "Investigate performance degradation"
+    },
+    "databaseConnections": {
+      "threshold": "> 80% pool utilization",
+      "window": "2m",
+      "action": "Scale database or investigate connection leaks"
+    },
+    "memoryUsage": {
+      "threshold": "> 85%",
+      "window": "5m",
+      "action": "Investigate memory leak or scale up"
+    }
+  },
+  "notes": {
+    "methodology": "Budgets based on Google Core Web Vitals and industry standards for marketplace platforms",
+    "testingFrequency": "Run load tests on every PR to main branch, full suite weekly",
+    "baselineEstablishment": "Establish baselines in production after 2 weeks of real traffic",
+    "reviewCycle": "Review and adjust budgets quarterly based on actual user behavior"
+  }
+}

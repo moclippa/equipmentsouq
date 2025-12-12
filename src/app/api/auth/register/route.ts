@@ -28,30 +28,23 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const data = registerSchema.parse(body);
 
-    // Check if email already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email: data.email },
+    // Check if email or phone already exists
+    // Use generic error message to prevent enumeration attacks
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: data.email },
+          ...(data.phone ? [{ phone: data.phone }] : []),
+        ],
+      },
     });
 
     if (existingUser) {
+      // Generic message - don't reveal which field matched (prevents enumeration)
       return NextResponse.json(
-        { error: "An account with this email already exists" },
+        { error: "An account with this information already exists" },
         { status: 409 }
       );
-    }
-
-    // Check if phone already exists (if provided)
-    if (data.phone) {
-      const existingPhone = await prisma.user.findUnique({
-        where: { phone: data.phone },
-      });
-
-      if (existingPhone) {
-        return NextResponse.json(
-          { error: "An account with this phone number already exists" },
-          { status: 409 }
-        );
-      }
     }
 
     // Hash password

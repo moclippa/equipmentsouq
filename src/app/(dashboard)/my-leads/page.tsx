@@ -114,7 +114,7 @@ export default function MyLeadsPage() {
           onClick={() => fetchLeads(activeTab)}
           disabled={isLoading}
         >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshCw className={`w-4 h-4 me-2 ${isLoading ? "animate-spin" : ""}`} />
           Refresh
         </Button>
       </div>
@@ -156,14 +156,14 @@ export default function MyLeadsPage() {
         <TabsList>
           <TabsTrigger value="all">
             All
-            <Badge variant="secondary" className="ml-2">
+            <Badge variant="secondary" className="ms-2">
               {pagination?.total || 0}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="new">
             New
             {statusCounts.new > 0 && (
-              <Badge className="ml-2 bg-blue-500">{statusCounts.new}</Badge>
+              <Badge className="ms-2 bg-blue-500">{statusCounts.new}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="contacted">Contacted</TabsTrigger>
@@ -172,8 +172,9 @@ export default function MyLeadsPage() {
 
         <TabsContent value={activeTab} className="space-y-4">
           {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            <div className="flex items-center justify-center py-12" role="status" aria-live="polite">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" aria-hidden="true" />
+              <span className="sr-only">Loading leads...</span>
             </div>
           ) : error ? (
             <Card>

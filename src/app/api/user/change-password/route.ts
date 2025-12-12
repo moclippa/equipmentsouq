@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { auth, hashPassword } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -46,8 +46,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(data.newPassword, 10);
+    // Hash new password using centralized function (12 rounds)
+    const hashedPassword = await hashPassword(data.newPassword);
 
     // Update password
     await prisma.user.update({

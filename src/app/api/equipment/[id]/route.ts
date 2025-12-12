@@ -56,11 +56,12 @@ export async function GET(
       );
     }
 
-    // Increment view count (fire and forget)
-    prisma.equipment.update({
-      where: { id },
-      data: { viewCount: { increment: 1 } },
-    }).catch(() => {});
+    // Atomically increment view count using raw SQL to prevent race conditions
+    // This ensures concurrent views don't lose updates (e.g., two concurrent requests
+    // both reading viewCount=10 and writing viewCount=11 instead of 12)
+    // Fire and forget - we don't block the response on this update
+    prisma.$executeRaw`UPDATE "Equipment" SET "viewCount" = "viewCount" + 1 WHERE id = ${id}`
+      .catch(() => {});
 
     return NextResponse.json({ equipment });
   } catch (error) {

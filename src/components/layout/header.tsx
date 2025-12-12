@@ -79,8 +79,8 @@ export function Header({ variant = "default" }: HeaderProps) {
 
         {/* Right Side Actions */}
         <div className="flex items-center gap-2">
-          <Link href="/favorites" title="Favorites">
-            <Button variant="ghost" size="icon">
+          <Link href="/favorites">
+            <Button variant="ghost" size="icon" aria-label="Favorites">
               <Heart className="w-4 h-4" />
             </Button>
           </Link>

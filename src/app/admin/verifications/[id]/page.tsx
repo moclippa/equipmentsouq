@@ -23,8 +23,10 @@ import {
   Building,
   Calendar,
   ExternalLink,
+  ShieldAlert,
 } from "lucide-react";
 import { VerificationActions } from "./verification-actions";
+import { decryptIfPresent, maskSensitiveData } from "@/lib/encryption";
 
 const BUSINESS_TYPE_ICONS = {
   INDIVIDUAL: User,
@@ -89,7 +91,7 @@ export default async function VerificationDetailPage({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link href="/admin/verifications">
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" aria-label="Back to verifications list">
               <ArrowLeft className="w-4 h-4" />
             </Button>
           </Link>
@@ -253,9 +255,13 @@ export default async function VerificationDetailPage({
               <CardTitle className="flex items-center gap-2">
                 <CreditCard className="w-5 h-5" />
                 Bank Details
+                <Badge variant="outline" className="ms-2 text-xs">
+                  <ShieldAlert className="w-3 h-3 me-1" />
+                  Encrypted
+                </Badge>
               </CardTitle>
               <CardDescription>
-                Payout account information
+                Payout account information (sensitive data is encrypted at rest)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -271,14 +277,20 @@ export default async function VerificationDetailPage({
                     </div>
                     <div>
                       <label className="text-sm text-muted-foreground">Account Holder</label>
-                      <p className="font-medium">{profile.bankAccountName || "Not provided"}</p>
+                      <p className="font-medium">
+                        {decryptIfPresent(profile.bankAccountName) || "Not provided"}
+                      </p>
                     </div>
                   </div>
                   {profile.bankIban && (
                     <div>
                       <label className="text-sm text-muted-foreground">IBAN</label>
                       <p className="font-mono text-sm bg-muted p-2 rounded mt-1">
-                        {profile.bankIban}
+                        {/* Show masked IBAN for security - full IBAN only on demand */}
+                        {maskSensitiveData(decryptIfPresent(profile.bankIban), 4)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Full IBAN visible in secure export only
                       </p>
                     </div>
                   )}

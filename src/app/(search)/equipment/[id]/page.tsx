@@ -337,7 +337,7 @@ export default function EquipmentDetailPage({
                         variant="secondary"
                         size="icon"
                         onClick={handleShare}
-                        title="Share listing"
+                        aria-label="Share listing"
                       >
                         <Share2 className="w-4 h-4" />
                       </Button>
@@ -346,7 +346,7 @@ export default function EquipmentDetailPage({
                           variant="secondary"
                           size="icon"
                           onClick={() => router.push(`/my-listings/${equipment.id}/edit`)}
-                          title="Edit listing"
+                          aria-label="Edit listing"
                         >
                           <Pencil className="w-4 h-4" />
                         </Button>
@@ -355,7 +355,8 @@ export default function EquipmentDetailPage({
                           variant="secondary"
                           size="icon"
                           onClick={handleFavorite}
-                          title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+                          aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+                          aria-pressed={isFavorite}
                           className={isFavorite ? "text-red-500 hover:text-red-600" : ""}
                         >
                           <Heart className={`w-4 h-4 ${isFavorite ? "fill-current" : ""}`} />
@@ -560,7 +561,7 @@ export default function EquipmentDetailPage({
                             /{equipment.rentalPriceUnit || "day"}
                           </span>
                           {equipment.listingType === "BOTH" && (
-                            <Badge variant="outline" className="ml-2">Rental</Badge>
+                            <Badge variant="outline" className="ms-2">Rental</Badge>
                           )}
                         </div>
                       )}
@@ -573,7 +574,7 @@ export default function EquipmentDetailPage({
                             {formatPrice(equipment.salePrice, equipment.currency)}
                           </span>
                           {equipment.listingType === "BOTH" && (
-                            <Badge variant="outline" className="ml-2">Buy</Badge>
+                            <Badge variant="outline" className="ms-2">Buy</Badge>
                           )}
                         </div>
                       )}

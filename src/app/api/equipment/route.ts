@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { fullTextSearchEquipment, buildEquipmentSearchWhere } from "@/lib/db/search";
 
 const createEquipmentSchema = z.object({
   // Basic info
@@ -174,6 +175,14 @@ export async function POST(request: NextRequest) {
 /**
  * GET /api/equipment
  * List equipment with filters
+ *
+ * Supports two pagination modes:
+ * 1. Cursor-based (keyset) pagination - Recommended for performance
+ *    - Use `cursor` param with the last item's ID
+ *    - Example: /api/equipment?cursor=abc123&limit=20
+ * 2. Offset pagination - For backward compatibility
+ *    - Use `page` param (1-indexed)
+ *    - Example: /api/equipment?page=2&limit=20
  */
 export async function GET(request: NextRequest) {
   try {
@@ -222,10 +231,13 @@ export async function GET(request: NextRequest) {
     const listingType = searchParams.get("listingType");
     const minPrice = searchParams.get("minPrice");
     const maxPrice = searchParams.get("maxPrice");
-    const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const sortBy = searchParams.get("sortBy") || "createdAt";
     const sortOrder = searchParams.get("sortOrder") || "desc";
+
+    // Pagination mode: cursor-based (keyset) takes precedence over offset
+    const cursor = searchParams.get("cursor");
+    const page = parseInt(searchParams.get("page") || "1");
 
     // Availability filters
     const showUnavailable = searchParams.get("showUnavailable") !== "false"; // default: true
@@ -248,14 +260,29 @@ export async function GET(request: NextRequest) {
     }
 
     // Full-text search
+    // First try PostgreSQL full-text search (uses GIN-indexed tsvector for O(log n) performance)
+    // Falls back to ILIKE search if full-text search is not available
+    let searchIds: string[] | null = null;
     if (search) {
-      where.OR = [
-        { titleEn: { contains: search, mode: "insensitive" } },
-        { titleAr: { contains: search, mode: "insensitive" } },
-        { make: { contains: search, mode: "insensitive" } },
-        { model: { contains: search, mode: "insensitive" } },
-        { descriptionEn: { contains: search, mode: "insensitive" } },
-      ];
+      // Try full-text search first
+      searchIds = await fullTextSearchEquipment(search, 1000);
+
+      if (searchIds.length > 0) {
+        // Full-text search succeeded - filter by IDs
+        // This is much faster than ILIKE because it uses pre-computed search vectors
+        where.id = { in: searchIds };
+      } else {
+        // Fallback to ILIKE search (still uses indexes where possible)
+        const searchWhere = buildEquipmentSearchWhere(search);
+        if (searchWhere.OR) {
+          where.OR = searchWhere.OR;
+        } else if (searchWhere.AND) {
+          where.AND = [
+            ...(where.AND as Record<string, unknown>[] || []),
+            ...((searchWhere.AND as Record<string, unknown>[]) || []),
+          ];
+        }
+      }
     }
 
     if (category) {
@@ -283,27 +310,62 @@ export async function GET(request: NextRequest) {
     }
 
     // Price filter - check both rental and sale prices
+    // Uses AND logic: item must match price range (via rentalPrice OR salePrice)
     if (minPrice || maxPrice) {
-      const priceFilter: Record<string, number>[] = [];
+      const priceCondition: Record<string, number> = {};
       if (minPrice) {
-        priceFilter.push({ gte: parseFloat(minPrice) });
+        priceCondition.gte = parseFloat(minPrice);
       }
       if (maxPrice) {
-        priceFilter.push({ lte: parseFloat(maxPrice) });
+        priceCondition.lte = parseFloat(maxPrice);
       }
 
-      where.OR = [
-        ...(where.OR as Record<string, unknown>[] || []),
-        { rentalPrice: Object.assign({}, ...priceFilter) },
-        { salePrice: Object.assign({}, ...priceFilter) },
+      // Item qualifies if EITHER rentalPrice OR salePrice is in range
+      // This is wrapped in AND (implicit in where) so it combines with other filters
+      where.AND = [
+        ...(where.AND as Record<string, unknown>[] || []),
+        {
+          OR: [
+            { rentalPrice: priceCondition },
+            { salePrice: priceCondition },
+          ],
+        },
       ];
     }
 
-    // Get total count
-    const total = await prisma.equipment.count({ where });
+    // Get total count (only needed for offset pagination or first page)
+    // For cursor pagination, we skip count on subsequent pages for performance
+    const needsTotalCount = !cursor;
+    const total = needsTotalCount ? await prisma.equipment.count({ where }) : 0;
+
+    // Build cursor-based pagination configuration
+    // Keyset pagination is more efficient than OFFSET for large datasets because:
+    // - OFFSET requires the database to scan and skip N rows
+    // - Cursor uses an indexed WHERE clause to jump directly to the right position
+    const paginationConfig: {
+      skip?: number;
+      take: number;
+      cursor?: { id: string };
+    } = {
+      take: limit + 1, // Fetch one extra to determine if there's a next page
+    };
+
+    if (cursor) {
+      // Cursor-based (keyset) pagination
+      // The cursor is the ID of the last item from the previous page
+      paginationConfig.cursor = { id: cursor };
+      paginationConfig.skip = 1; // Skip the cursor item itself
+    } else if (page > 1) {
+      // Fallback to offset pagination for backward compatibility
+      // Note: This is less efficient for large page numbers
+      paginationConfig.skip = (page - 1) * limit;
+      paginationConfig.take = limit;
+    } else {
+      paginationConfig.take = limit + 1;
+    }
 
     // Get equipment with pagination
-    const equipment = await prisma.equipment.findMany({
+    const equipmentResults = await prisma.equipment.findMany({
       where,
       include: {
         category: {
@@ -321,9 +383,13 @@ export async function GET(request: NextRequest) {
         },
       },
       orderBy: { [sortBy]: sortOrder },
-      skip: (page - 1) * limit,
-      take: limit,
+      ...paginationConfig,
     });
+
+    // Determine if there are more results
+    const hasNextPage = equipmentResults.length > limit;
+    const equipment = hasNextPage ? equipmentResults.slice(0, limit) : equipmentResults;
+    const nextCursor = hasNextPage && equipment.length > 0 ? equipment[equipment.length - 1].id : null;
 
     // If date range provided, check availability conflicts for rental listings
     let equipmentWithConflicts = equipment;
@@ -370,10 +436,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       equipment: equipmentWithConflicts,
       pagination: {
+        // Cursor-based pagination (recommended)
+        nextCursor,
+        hasNextPage,
+        // Offset pagination (backward compatibility)
         page,
         limit,
-        total,
-        totalPages: Math.ceil(total / limit),
+        total, // Note: total is 0 when using cursor pagination for performance
+        totalPages: total > 0 ? Math.ceil(total / limit) : undefined,
       },
     });
   } catch (error) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { encryptIfPresent } from "@/lib/encryption";
 
 // City to Region/Country mapping for Saudi Arabia and Bahrain
 const CITY_MAPPING: Record<string, { region: string; country: "SA" | "BH" }> = {
@@ -92,6 +93,7 @@ export async function POST(request: NextRequest) {
     const bankIban = data.iban || data.bankIban || "";
 
     // Create business profile
+    // Bank details are encrypted at rest for security
     const profile = await prisma.businessProfile.create({
       data: {
         userId: session.user.id,
@@ -106,10 +108,10 @@ export async function POST(request: NextRequest) {
         addressLine1: addressLine1 || null,
         crDocumentUrl: data.crDocumentUrl || null,
         vatDocumentUrl: data.vatDocumentUrl || null,
-        // Bank details - in production, these should be encrypted
-        bankName: data.bankName || null,
-        bankAccountName: bankAccountName || null,
-        bankIban: bankIban || null,
+        // Bank details - encrypted at rest
+        bankName: data.bankName || null, // Bank name doesn't need encryption
+        bankAccountName: encryptIfPresent(bankAccountName || null),
+        bankIban: encryptIfPresent(bankIban || null),
         // Set initial verification status
         crVerificationStatus: "PENDING",
       },

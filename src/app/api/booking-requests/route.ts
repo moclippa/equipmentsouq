@@ -21,7 +21,14 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth();
 
-    // Allow both authenticated and guest users
+    // Require authentication for booking requests
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Authentication required to submit booking requests" },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const validatedData = createBookingRequestSchema.parse(body);
 
@@ -135,7 +142,7 @@ export async function POST(request: NextRequest) {
     const bookingRequest = await prisma.bookingRequest.create({
       data: {
         equipmentId: validatedData.equipmentId,
-        renterId: session?.user?.id || "guest", // Use "guest" for non-authenticated users
+        renterId: session.user.id,
         startDate,
         endDate,
         renterMessage: validatedData.message || null,

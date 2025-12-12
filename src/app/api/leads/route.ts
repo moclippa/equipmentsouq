@@ -87,22 +87,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create the lead using verified user info
-    const lead = await prisma.lead.create({
-      data: {
-        equipmentId: data.equipmentId,
-        name: user.fullName,
-        phone: user.phone!, // We verified this exists above
-        email: user.email || null,
-        message: data.message || null,
-        interestedIn: data.interestedIn,
-      },
-    });
+    // Create the lead and atomically increment lead count in a single transaction
+    // This prevents race conditions where concurrent requests could lose lead count updates
+    const lead = await prisma.$transaction(async (tx) => {
+      // Create the lead
+      const newLead = await tx.lead.create({
+        data: {
+          equipmentId: data.equipmentId,
+          name: user.fullName,
+          phone: user.phone!, // We verified this exists above
+          email: user.email || null,
+          message: data.message || null,
+          interestedIn: data.interestedIn,
+        },
+      });
 
-    // Increment lead count on equipment
-    await prisma.equipment.update({
-      where: { id: data.equipmentId },
-      data: { leadCount: { increment: 1 } },
+      // Atomically increment lead count within the same transaction
+      await tx.equipment.update({
+        where: { id: data.equipmentId },
+        data: { leadCount: { increment: 1 } },
+      });
+
+      return newLead;
     });
 
     // Send SMS notification to owner (fire-and-forget)

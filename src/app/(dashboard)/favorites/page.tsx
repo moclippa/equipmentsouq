@@ -133,8 +133,9 @@ export default function FavoritesPage() {
 
       {/* Content */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        <div className="flex items-center justify-center py-20" role="status" aria-live="polite">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" aria-hidden="true" />
+          <span className="sr-only">Loading favorites...</span>
         </div>
       ) : equipment.length === 0 ? (
         <div className="text-center py-20">
@@ -155,11 +156,12 @@ export default function FavoritesPage() {
               <Button
                 variant="secondary"
                 size="icon"
-                className="absolute top-2 end-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 hover:bg-white text-red-500 hover:text-red-600"
+                className="absolute top-2 end-2 z-10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity bg-white/90 hover:bg-white text-red-500 hover:text-red-600"
                 onClick={(e) => {
                   e.preventDefault();
                   removeFavorite(item.id);
                 }}
+                aria-label={`Remove ${item.titleEn} from favorites`}
               >
                 <Trash2 className="w-4 h-4" />
               </Button>
